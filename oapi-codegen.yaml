@@ -1,0 +1,8 @@
+package: api
+generate:
+  - types
+  - client
+output: internal/api/client.gen.go
+import-mapping:
+  uuid: github.com/google/uuid
+  date-time: time.Time

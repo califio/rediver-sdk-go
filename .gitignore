@@ -1,0 +1,27 @@
+.env
+docs
+plans
+**/CLAUDE.md
+!CLAUDE.md
+.idea
+.claude
+.vscode
+*.log
+*.tmp
+*.cache
+*.bak
+*.swp
+*.swo
+*.DS_Store
+*.so
+*.dylib
+*.test
+*.out
+# Go build binaries from examples (go build ./examples/*)
+/ci-scanner
+/direct-job
+/multi-scanner
+/serviceprobe
+/subdomain
+/task
+/vulnscan
