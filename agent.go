@@ -33,6 +33,7 @@ type Agent struct {
 	pool         *worker.Pool
 	retrier      *retrier
 	running      bool // set in Run(), checked in Register()
+	drainCtx     context.Context // stays alive during graceful shutdown for running jobs
 }
 
 // NewAgent creates a new agent instance.
@@ -360,17 +361,24 @@ func (a *Agent) buildScannerUpdate(s Scanner, info auth.RegisteredScannerInfo) *
 // --- Daemon mode ---
 
 func (a *Agent) runDaemon(ctx context.Context) error {
-	// Start agent heartbeat (daemon only)
-	go a.agentHeartbeatLoop(ctx)
+	// drainCtx stays alive during graceful shutdown so running jobs
+	// can continue sending heartbeats and reporting results.
+	// Only cancelled after all jobs complete or shutdown timeout.
+	drainCtx, cancelDrain := context.WithCancel(context.Background())
+	defer cancelDrain()
 
-	// Start poll loop
+	// Agent heartbeat uses drainCtx — continues during drain
+	go a.agentHeartbeatLoop(drainCtx)
+
+	// Poll loop stops on ctx (SIGTERM)
+	a.drainCtx = drainCtx
 	go a.pollLoop(ctx)
 
 	// Wait for shutdown signal
 	<-ctx.Done()
 	a.config.logger.Info("shutting down...")
 
-	// Graceful: wait for running jobs
+	// Graceful: wait for running jobs to complete
 	done := make(chan struct{})
 	go func() {
 		a.pool.Shutdown()
@@ -383,6 +391,9 @@ func (a *Agent) runDaemon(ctx context.Context) error {
 			a.config.logger.Info("all jobs completed")
 		case <-time.After(a.config.shutdownTimeout):
 			a.config.logger.Warn("shutdown timeout, forcing exit")
+			// Cancel drainCtx first so running jobs see context cancellation,
+			// then ShutdownNow waits for them to return.
+			cancelDrain()
 			a.pool.ShutdownNow()
 		}
 	} else {
@@ -391,6 +402,8 @@ func (a *Agent) runDaemon(ctx context.Context) error {
 		a.config.logger.Info("all jobs completed")
 	}
 
+	// All jobs finished (or forced) — stop agent heartbeat
+	cancelDrain()
 	return nil
 }
 
@@ -453,10 +466,11 @@ func (a *Agent) pollAndDispatch(ctx context.Context) {
 		return
 	}
 
-	// Submit to worker pool — executeJob handles scanner lookup
+	// Submit to worker pool with drainCtx so running jobs
+	// keep heartbeating during graceful shutdown.
 	err = a.pool.Submit(&agentJob{
 		agent: a,
-		ctx:   ctx,
+		ctx:   a.drainCtx,
 		jobID: jobID,
 	})
 	if err != nil {

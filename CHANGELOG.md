@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-03-06
+
+### Fixed
+- Graceful shutdown: running jobs now continue heartbeating during pod termination
+- Introduced `drainCtx` pattern — separates "stop polling" (signal ctx) from "stop running jobs" (drain ctx)
+- Agent heartbeat continues during graceful shutdown drain period
+- Shutdown timeout now properly cancels drain context before forcing exit, preventing deadlock
+
+### Changed
+- `runDaemon` creates separate drain context for job execution lifecycle
+- Jobs submitted to worker pool use `drainCtx` instead of signal context
+- `pollLoop` exits immediately on SIGTERM; no new jobs pulled after shutdown signal
+
 ## [1.0.0] - 2026-03-05
 
 ### Added
