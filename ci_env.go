@@ -1,6 +1,7 @@
 package rediver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,18 +13,27 @@ import (
 // falling back to local git repository detection.
 // Returns nil if not running in CI and not inside a git repository.
 func DetectGitContext() *CIContext {
+	var ci *CIContext
 	if os.Getenv("GITLAB_CI") == "true" {
-		ci := detectGitLabCI()
+		ci = detectGitLabCI()
 		ci.Source = "gitlab-ci"
-		return ci
-	}
-	if os.Getenv("GITHUB_ACTIONS") == "true" {
-		ci := detectGitHubActions()
+	} else if os.Getenv("GITHUB_ACTIONS") == "true" {
+		ci = detectGitHubActions()
 		ci.Source = "github-action"
-		return ci
+	} else {
+		// Fallback: detect local git repository
+		return detectLocalGit("")
 	}
-	// Fallback: detect local git repository
-	return detectLocalGit("")
+
+	// Fallback: resolve BaseCommitSHA via git merge-base when CI env var is missing
+	if ci.Ref.Type == CIRefTypePRMR && ci.Ref.BaseCommitSHA == "" && ci.Ref.BaseBranch != "" {
+		if sha, err := gitExec(context.Background(), ci.RepoDir,
+			"merge-base", "origin/"+ci.Ref.BaseBranch, ci.Ref.CommitSHA); err == nil && sha != "" {
+			ci.Ref.BaseCommitSHA = sha
+		}
+	}
+
+	return ci
 }
 
 func detectGitLabCI() *CIContext {
