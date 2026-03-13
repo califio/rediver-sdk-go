@@ -160,31 +160,9 @@ func (a *Agent) Run(ctx context.Context, runOpts ...RunOption) error {
 	}
 
 	// Worker/Daemon mode: full registration
-	regReq := a.buildRegistrationRequest()
-
-	var regResp *auth.RegistrationResponse
-	if err := a.retrier.Do(ctx, func() error {
-		var regErr error
-		regResp, regErr = a.tokenManager.Register(ctx, regReq)
-		return regErr
-	}); err != nil {
-		return fmt.Errorf("register: %w", err)
+	if err := a.registerAndInitPool(ctx); err != nil {
+		return err
 	}
-
-	// Remap scanner names if backend resolved differently (e.g., custom_ prefix)
-	if regResp != nil && len(regResp.Scanners) > 0 {
-		a.remapScannerNames(regResp.Scanners)
-		a.updateScannerMetadata(ctx, regResp.Scanners, regResp.System)
-	}
-
-	a.config.logger.Info("registered with server",
-		"agent_id", a.tokenManager.AgentID(),
-		"scanners", a.scannerNamesList(),
-		"mode", a.config.runMode.String(),
-	)
-
-	// Create worker pool
-	a.pool = worker.NewPool(a.config.maxConcurrency, a.config.maxConcurrency*2)
 
 	return a.runDaemon(ctx)
 }
@@ -363,6 +341,35 @@ func (a *Agent) buildScannerUpdate(s Scanner, info auth.RegisteredScannerInfo) *
 		return nil
 	}
 	return &req
+}
+
+// registerAndInitPool performs Worker mode registration and creates the worker pool.
+// Used by both Run() (daemon mode) and ListenForJobs().
+func (a *Agent) registerAndInitPool(ctx context.Context) error {
+	regReq := a.buildRegistrationRequest()
+
+	var regResp *auth.RegistrationResponse
+	if err := a.retrier.Do(ctx, func() error {
+		var regErr error
+		regResp, regErr = a.tokenManager.Register(ctx, regReq)
+		return regErr
+	}); err != nil {
+		return fmt.Errorf("register: %w", err)
+	}
+
+	if regResp != nil && len(regResp.Scanners) > 0 {
+		a.remapScannerNames(regResp.Scanners)
+		a.updateScannerMetadata(ctx, regResp.Scanners, regResp.System)
+	}
+
+	a.config.logger.Info("registered with server",
+		"agent_id", a.tokenManager.AgentID(),
+		"scanners", a.scannerNamesList(),
+		"mode", a.config.runMode.String(),
+	)
+
+	a.pool = worker.NewPool(a.config.maxConcurrency, a.config.maxConcurrency*2)
+	return nil
 }
 
 // --- Daemon mode ---
