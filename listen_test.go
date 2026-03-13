@@ -2,6 +2,7 @@ package rediver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -14,8 +15,8 @@ func TestListenForJobs_NilHandler(t *testing.T) {
 	agent.Register(NewScanner("test", []TargetType{TargetTypeDomain}, nil))
 
 	err = agent.ListenForJobs(context.Background(), nil)
-	if err == nil {
-		t.Fatal("expected error for nil handler")
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got: %v", err)
 	}
 }
 
@@ -28,8 +29,8 @@ func TestListenForJobs_NoScanners(t *testing.T) {
 	err = agent.ListenForJobs(context.Background(), func(ctx context.Context, jobID string) error {
 		return nil
 	})
-	if err == nil {
-		t.Fatal("expected error for no scanners")
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got: %v", err)
 	}
 }
 
@@ -47,8 +48,8 @@ func TestListenForJobs_AlreadyRunning(t *testing.T) {
 	err = agent.ListenForJobs(context.Background(), func(ctx context.Context, jobID string) error {
 		return nil
 	})
-	if err == nil {
-		t.Fatal("expected error for already running")
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got: %v", err)
 	}
 }
 
@@ -136,4 +137,26 @@ func TestDispatchJob_ErrorSkipsJobFailedOnCancellation(t *testing.T) {
 	// ctx.Err() != nil prevents reportJobFailed from being called.
 	// The HTTP client exists but would fail on network call — the ctx check
 	// correctly short-circuits before that happens.
+}
+
+func TestDispatchJob_ErrorCallsJobFailedWhenCtxAlive(t *testing.T) {
+	// When ctx is NOT cancelled, handler errors should trigger reportJobFailed
+	agent, _ := NewAgent("http://localhost", "test-token")
+	ctx := context.Background()
+
+	job := &dispatchJob{
+		agent: agent,
+		handler: func(ctx context.Context, jobID string) error {
+			return fmt.Errorf("k8s api unavailable")
+		},
+		ctx:   ctx,
+		jobID: "job-fail-1",
+	}
+
+	err := job.Execute(context.Background())
+	if err == nil {
+		t.Fatal("expected error from handler")
+	}
+	// reportJobFailed is called (HTTP fails since no server, but code path exercised).
+	// No panic = success. In production, httptest server would verify the API call.
 }

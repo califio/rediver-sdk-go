@@ -183,10 +183,11 @@ func (a *Agent) RunAsTask(ctx context.Context, opts ...RunOption) error {
 // CI mode uses lightweight token exchange (POST /api/agent/token) instead of full registration.
 func (a *Agent) RunAsCI(ctx context.Context) error {
 	a.config.runMode = RunModeCI
-	if !a.running.CompareAndSwap(false, true) {
-		return fmt.Errorf("%w: agent already running", ErrInvalidConfig)
+	// Try to set running; if already set (called from Run()), skip the guard.
+	ownedRunning := a.running.CompareAndSwap(false, true)
+	if ownedRunning {
+		defer a.running.Store(false)
 	}
-	defer a.running.Store(false)
 
 	if len(a.scanners) == 0 {
 		return fmt.Errorf("%w: at least one scanner must be registered", ErrInvalidConfig)
