@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-03-13
+
+### Added
+- `ListenForJobs` method — run agent as a job manager that polls for jobs and dispatches them via user callback (e.g., create K8s Jobs)
+- `JobHandler` type for custom job dispatch logic
+- `dispatchJob` struct implementing `worker.Job` with captured `drainCtx` for graceful shutdown
+- Unit tests for ListenForJobs validation, dispatchJob execution, context handling, and error paths
+
+### Fixed
+- `RunAsCI` double-CAS regression — CI mode via `Run()` no longer fails with "agent already running"
+- Empty job ID guard in `pullJob` — rejects empty strings from server as `ErrNoJobAvailable`
+
+### Changed
+- `running` field changed from `bool` to `atomic.Bool` to prevent data races
+- Extracted `registerAndInitPool` from `Run()` for reuse by `ListenForJobs`
+- Renamed `CreateCiJob` to `CreateJob` in API client
+
 ## [1.0.1] - 2026-03-06
 
 ### Fixed
