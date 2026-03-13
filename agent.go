@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/califio/rediver-sdk-go/internal/api"
@@ -32,7 +33,7 @@ type Agent struct {
 	scanners     map[string]Scanner // registry: lowercase name -> scanner
 	pool         *worker.Pool
 	retrier      *retrier
-	running      bool // set in Run(), checked in Register()
+	running      atomic.Bool // set in Run(), checked in Register()
 	drainCtx     context.Context // stays alive during graceful shutdown for running jobs
 }
 
@@ -92,7 +93,7 @@ func NewAgent(serverURL, clusterToken string, opts ...Option) (*Agent, error) {
 // Register adds scanners to the agent's internal registry.
 // Scanner names are normalized to lowercase. Must be called before Run().
 func (a *Agent) Register(scanners ...Scanner) error {
-	if a.running {
+	if a.running.Load() {
 		return fmt.Errorf("%w: cannot register scanners after Run() has been called", ErrInvalidConfig)
 	}
 	for _, s := range scanners {
@@ -110,7 +111,10 @@ func (a *Agent) Register(scanners ...Scanner) error {
 
 // Run starts the agent lifecycle based on the configured run mode.
 func (a *Agent) Run(ctx context.Context, runOpts ...RunOption) error {
-	a.running = true
+	if !a.running.CompareAndSwap(false, true) {
+		return fmt.Errorf("%w: agent already running", ErrInvalidConfig)
+	}
+	defer a.running.Store(false)
 
 	cfg := &runConfig{}
 	for _, opt := range runOpts {
@@ -201,7 +205,10 @@ func (a *Agent) RunAsTask(ctx context.Context, opts ...RunOption) error {
 // CI mode uses lightweight token exchange (POST /api/agent/token) instead of full registration.
 func (a *Agent) RunAsCI(ctx context.Context) error {
 	a.config.runMode = RunModeCI
-	a.running = true
+	if !a.running.CompareAndSwap(false, true) {
+		return fmt.Errorf("%w: agent already running", ErrInvalidConfig)
+	}
+	defer a.running.Store(false)
 
 	if len(a.scanners) == 0 {
 		return fmt.Errorf("%w: at least one scanner must be registered", ErrInvalidConfig)
@@ -916,7 +923,7 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext, scannerName str
 		apiReq.Parameters = &params
 	}
 
-	res, err := a.client.CreateCiJobWithResponse(ctx, apiReq)
+	res, err := a.client.CreateJobWithResponse(ctx, apiReq)
 	if err != nil {
 		return fmt.Errorf("create CI job: %w", err)
 	}
