@@ -504,7 +504,11 @@ func (a *Agent) pullJob(ctx context.Context) (string, error) {
 		return "", ErrNoJobAvailable
 	}
 
-	return *res.JSON200.JobId, nil
+	jobID := *res.JSON200.JobId
+	if jobID == "" {
+		return "", ErrNoJobAvailable
+	}
+	return jobID, nil
 }
 
 // --- Job execution ---
