@@ -5,7 +5,7 @@ import (
 )
 
 // ciContextToAPIRequest converts a CIContext + scanner info into the generated API request.
-// Uses the CreateCiJobRequest type (maps to /api/agent/job/create).
+// Uses the CreateCiJobRequest type (maps to POST /api/agent/job/create via CreateJobWithResponse).
 func ciContextToAPIRequest(ci *CIContext, scannerName string) api.CreateCiJobRequest {
 	provider := ci.Provider
 	refType := api.Branch

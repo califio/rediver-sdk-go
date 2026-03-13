@@ -57,6 +57,7 @@ const (
 const (
 	FindingStatusAcceptedRisk      FindingStatus = "AcceptedRisk"
 	FindingStatusConfirmed         FindingStatus = "Confirmed"
+	FindingStatusDuplicated        FindingStatus = "Duplicated"
 	FindingStatusFalsePositive     FindingStatus = "FalsePositive"
 	FindingStatusFixed             FindingStatus = "Fixed"
 	FindingStatusFixing            FindingStatus = "Fixing"
@@ -399,37 +400,41 @@ type FindingAttachmentDto struct {
 
 // FindingDetail defines model for FindingDetail.
 type FindingDetail struct {
-	Asset       *string                  `json:"asset"`
-	AssetId     *string                  `json:"asset_id"`
-	AssetType   *FindingDetail_AssetType `json:"asset_type"`
-	Attachments *[]FindingAttachmentDto  `json:"attachments"`
-	Category    *string                  `json:"category"`
-	CreatedAt   *time.Time               `json:"created_at,omitempty"`
-	Cve         *string                  `json:"cve"`
-	CvssScore   *float32                 `json:"cvss_score"`
-	CvssVector  *string                  `json:"cvss_vector"`
-	Cwes        *[]string                `json:"cwes,omitempty"`
-	Description *string                  `json:"description,omitempty"`
-	DueDate     *time.Time               `json:"due_date"`
-	Endpoint    *string                  `json:"endpoint"`
-	Fingerprint *string                  `json:"fingerprint,omitempty"`
-	FixedAt     *time.Time               `json:"fixed_at"`
-	Id          *string                  `json:"id,omitempty"`
-	LastSeen    *time.Time               `json:"last_seen,omitempty"`
-	Metadata    *FindingDetail_Metadata  `json:"metadata"`
-	Name        *string                  `json:"name,omitempty"`
-	OwnerId     *string                  `json:"owner_id"`
-	OwnerName   *string                  `json:"owner_name"`
-	References  *[]string                `json:"references,omitempty"`
-	Remediation *string                  `json:"remediation"`
-	RuleId      *string                  `json:"rule_id"`
-	Scanners    *[]string                `json:"scanners,omitempty"`
-	Severity    *Severity                `json:"severity,omitempty"`
-	Status      *FindingStatus           `json:"status,omitempty"`
-	Tags        *[]string                `json:"tags,omitempty"`
-	TicketId    *string                  `json:"ticket_id"`
-	Type        *FindingType             `json:"type,omitempty"`
-	VerifiedAt  *time.Time               `json:"verified_at"`
+	Asset           *string                  `json:"asset"`
+	AssetId         *string                  `json:"asset_id"`
+	AssetType       *FindingDetail_AssetType `json:"asset_type"`
+	Attachments     *[]FindingAttachmentDto  `json:"attachments"`
+	Category        *string                  `json:"category"`
+	CreatedAt       *time.Time               `json:"created_at,omitempty"`
+	Cve             *string                  `json:"cve"`
+	CvssScore       *float32                 `json:"cvss_score"`
+	CvssVector      *string                  `json:"cvss_vector"`
+	Cwes            *[]string                `json:"cwes,omitempty"`
+	Description     *string                  `json:"description,omitempty"`
+	DueDate         *time.Time               `json:"due_date"`
+	DuplicateOfId   *string                  `json:"duplicate_of_id"`
+	DuplicateOfName *string                  `json:"duplicate_of_name"`
+	Endpoint        *string                  `json:"endpoint"`
+	Fingerprint     *string                  `json:"fingerprint,omitempty"`
+	FixedAt         *time.Time               `json:"fixed_at"`
+	GitRef          *FindingDetail_GitRef    `json:"git_ref"`
+	Id              *string                  `json:"id,omitempty"`
+	LastSeen        *time.Time               `json:"last_seen,omitempty"`
+	Metadata        *FindingDetail_Metadata  `json:"metadata"`
+	Name            *string                  `json:"name,omitempty"`
+	OwnerId         *string                  `json:"owner_id"`
+	OwnerName       *string                  `json:"owner_name"`
+	References      *[]string                `json:"references,omitempty"`
+	Regions         *[]FindingRegion         `json:"regions"`
+	Remediation     *string                  `json:"remediation"`
+	RuleId          *string                  `json:"rule_id"`
+	Scanners        *[]string                `json:"scanners,omitempty"`
+	Severity        *Severity                `json:"severity,omitempty"`
+	Status          *FindingStatus           `json:"status,omitempty"`
+	Tags            *[]string                `json:"tags,omitempty"`
+	TicketId        *string                  `json:"ticket_id"`
+	Type            *FindingType             `json:"type,omitempty"`
+	VerifiedAt      *time.Time               `json:"verified_at"`
 }
 
 // FindingDetail_AssetType defines model for FindingDetail.AssetType.
@@ -437,9 +442,61 @@ type FindingDetail_AssetType struct {
 	union json.RawMessage
 }
 
+// FindingDetail_GitRef defines model for FindingDetail.GitRef.
+type FindingDetail_GitRef struct {
+	union json.RawMessage
+}
+
 // FindingDetail_Metadata defines model for FindingDetail.Metadata.
 type FindingDetail_Metadata struct {
 	union json.RawMessage
+}
+
+// FindingGitRef defines model for FindingGitRef.
+type FindingGitRef struct {
+	BaseBranch        *string                     `json:"base_branch"`
+	Branch            *string                     `json:"branch"`
+	CommitSha         *string                     `json:"commit_sha,omitempty"`
+	IsDefault         *bool                       `json:"is_default,omitempty"`
+	Name              *string                     `json:"name,omitempty"`
+	PrNumber          *string                     `json:"pr_number"`
+	PrTitle           *string                     `json:"pr_title"`
+	RepoDefaultBranch *string                     `json:"repo_default_branch"`
+	RepoProvider      *FindingGitRef_RepoProvider `json:"repo_provider"`
+	RepoUrl           *string                     `json:"repo_url"`
+	Type              *GitRefType                 `json:"type,omitempty"`
+}
+
+// FindingGitRef_RepoProvider defines model for FindingGitRef.RepoProvider.
+type FindingGitRef_RepoProvider struct {
+	union json.RawMessage
+}
+
+// FindingHistoryItem defines model for FindingHistoryItem.
+type FindingHistoryItem struct {
+	Category    *string                 `json:"category"`
+	Description *string                 `json:"description,omitempty"`
+	File        *string                 `json:"file"`
+	Fingerprint *string                 `json:"fingerprint,omitempty"`
+	Id          *string                 `json:"id,omitempty"`
+	Name        *string                 `json:"name,omitempty"`
+	Regions     *[]FindingHistoryRegion `json:"regions,omitempty"`
+	Remediation *string                 `json:"remediation"`
+	RuleId      *string                 `json:"rule_id"`
+	Severity    *Severity               `json:"severity,omitempty"`
+	Signature   *string                 `json:"signature"`
+	Snippet     *string                 `json:"snippet"`
+	Status      *FindingStatus          `json:"status,omitempty"`
+}
+
+// FindingHistoryRegion defines model for FindingHistoryRegion.
+type FindingHistoryRegion struct {
+	EndLine       *int32       `json:"end_line,omitempty"`
+	File          *string      `json:"file,omitempty"`
+	Flows         *[]TaintNode `json:"flows"`
+	LastCommitSha *string      `json:"last_commit_sha,omitempty"`
+	Snippet       *string      `json:"snippet,omitempty"`
+	StartLine     *int32       `json:"start_line,omitempty"`
 }
 
 // FindingImport defines model for FindingImport.
@@ -459,6 +516,7 @@ type FindingImport struct {
 
 // FindingMetadataDto defines model for FindingMetadataDto.
 type FindingMetadataDto struct {
+	CommitSha        *string `json:"commit_sha"`
 	CurlCommand      *string `json:"curl_command"`
 	EndLine          *int32  `json:"end_line"`
 	Endpoint         *string `json:"endpoint"`
@@ -470,22 +528,36 @@ type FindingMetadataDto struct {
 	Username         *string `json:"username"`
 }
 
+// FindingRegion defines model for FindingRegion.
+type FindingRegion struct {
+	CodeLines   *[]CodeLine  `json:"code_lines"`
+	CommitSha   *string      `json:"commit_sha,omitempty"`
+	EndColumn   *int32       `json:"end_column"`
+	EndLine     *int32       `json:"end_line,omitempty"`
+	File        *string      `json:"file,omitempty"`
+	Flows       *[]TaintNode `json:"flows"`
+	Snippet     *string      `json:"snippet,omitempty"`
+	StartColumn *int32       `json:"start_column"`
+	StartLine   *int32       `json:"start_line,omitempty"`
+}
+
 // FindingStatus defines model for FindingStatus.
 type FindingStatus string
 
 // FindingSummary defines model for FindingSummary.
 type FindingSummary struct {
-	Asset      *string        `json:"asset"`
-	Category   *string        `json:"category"`
-	CreatedAt  *time.Time     `json:"created_at,omitempty"`
-	Endpoint   *string        `json:"endpoint"`
-	FixedAt    *time.Time     `json:"fixed_at"`
-	Id         *string        `json:"id,omitempty"`
-	LastSeen   *time.Time     `json:"last_seen,omitempty"`
-	Name       *string        `json:"name,omitempty"`
-	Severity   *Severity      `json:"severity,omitempty"`
-	Status     *FindingStatus `json:"status,omitempty"`
-	VerifiedAt *time.Time     `json:"verified_at"`
+	Asset         *string        `json:"asset"`
+	Category      *string        `json:"category"`
+	CreatedAt     *time.Time     `json:"created_at,omitempty"`
+	DuplicateOfId *string        `json:"duplicate_of_id"`
+	Endpoint      *string        `json:"endpoint"`
+	FixedAt       *time.Time     `json:"fixed_at"`
+	Id            *string        `json:"id,omitempty"`
+	LastSeen      *time.Time     `json:"last_seen,omitempty"`
+	Name          *string        `json:"name,omitempty"`
+	Severity      *Severity      `json:"severity,omitempty"`
+	Status        *FindingStatus `json:"status,omitempty"`
+	VerifiedAt    *time.Time     `json:"verified_at"`
 }
 
 // FindingType defines model for FindingType.
@@ -494,6 +566,12 @@ type FindingType string
 // GetDomainByIpResult defines model for GetDomainByIpResult.
 type GetDomainByIpResult struct {
 	Domains *[]string `json:"domains,omitempty"`
+}
+
+// GetFindingHistoryRequest defines model for GetFindingHistoryRequest.
+type GetFindingHistoryRequest struct {
+	IncludeAll *bool   `json:"include_all,omitempty"`
+	JobId      *string `json:"job_id,omitempty"`
 }
 
 // GitProvider defines model for GitProvider.
@@ -733,6 +811,18 @@ type ServiceAsset struct {
 // Severity defines model for Severity.
 type Severity string
 
+// TaintNode defines model for TaintNode.
+type TaintNode struct {
+	CodeLines   *[]CodeLine `json:"code_lines"`
+	EndColumn   *int32      `json:"end_column"`
+	EndLine     *int32      `json:"end_line,omitempty"`
+	File        *string     `json:"file,omitempty"`
+	Message     *string     `json:"message"`
+	Snippet     *string     `json:"snippet,omitempty"`
+	StartColumn *int32      `json:"start_column"`
+	StartLine   *int32      `json:"start_line,omitempty"`
+}
+
 // TriageActivity defines model for TriageActivity.
 type TriageActivity struct {
 	Content          *string       `json:"content"`
@@ -829,6 +919,9 @@ type PushAssetsJSONRequestBody = PushAssetsRequest
 // LegacyCreateCiJobJSONRequestBody defines body for LegacyCreateCiJob for application/json ContentType.
 type LegacyCreateCiJobJSONRequestBody = CreateCiJobRequest
 
+// GetFindingHistoryJSONRequestBody defines body for GetFindingHistory for application/json ContentType.
+type GetFindingHistoryJSONRequestBody = GetFindingHistoryRequest
+
 // TriageFindingJSONRequestBody defines body for TriageFinding for application/json ContentType.
 type TriageFindingJSONRequestBody = TriageActivity
 
@@ -847,8 +940,8 @@ type BulkImportWebFindingJSONRequestBody = BulkImportWebFindingRequest
 // JobCompletedJSONRequestBody defines body for JobCompleted for application/json ContentType.
 type JobCompletedJSONRequestBody = JobCompletedRequest
 
-// CreateCiJobJSONRequestBody defines body for CreateCiJob for application/json ContentType.
-type CreateCiJobJSONRequestBody = CreateCiJobRequest
+// CreateJobJSONRequestBody defines body for CreateJob for application/json ContentType.
+type CreateJobJSONRequestBody = CreateCiJobRequest
 
 // JobFailedJSONRequestBody defines body for JobFailed for application/json ContentType.
 type JobFailedJSONRequestBody = JobFailedRequest
@@ -919,6 +1012,42 @@ func (t *FindingDetail_AssetType) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsFindingGitRef returns the union data inside the FindingDetail_GitRef as a FindingGitRef
+func (t FindingDetail_GitRef) AsFindingGitRef() (FindingGitRef, error) {
+	var body FindingGitRef
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFindingGitRef overwrites any union data inside the FindingDetail_GitRef as the provided FindingGitRef
+func (t *FindingDetail_GitRef) FromFindingGitRef(v FindingGitRef) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFindingGitRef performs a merge with any union data inside the FindingDetail_GitRef, using the provided FindingGitRef
+func (t *FindingDetail_GitRef) MergeFindingGitRef(v FindingGitRef) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t FindingDetail_GitRef) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *FindingDetail_GitRef) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsFindingMetadataDto returns the union data inside the FindingDetail_Metadata as a FindingMetadataDto
 func (t FindingDetail_Metadata) AsFindingMetadataDto() (FindingMetadataDto, error) {
 	var body FindingMetadataDto
@@ -951,6 +1080,42 @@ func (t FindingDetail_Metadata) MarshalJSON() ([]byte, error) {
 }
 
 func (t *FindingDetail_Metadata) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsGitProvider returns the union data inside the FindingGitRef_RepoProvider as a GitProvider
+func (t FindingGitRef_RepoProvider) AsGitProvider() (GitProvider, error) {
+	var body GitProvider
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitProvider overwrites any union data inside the FindingGitRef_RepoProvider as the provided GitProvider
+func (t *FindingGitRef_RepoProvider) FromGitProvider(v GitProvider) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGitProvider performs a merge with any union data inside the FindingGitRef_RepoProvider, using the provided GitProvider
+func (t *FindingGitRef_RepoProvider) MergeGitProvider(v GitProvider) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t FindingGitRef_RepoProvider) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *FindingGitRef_RepoProvider) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -1038,6 +1203,11 @@ type ClientInterface interface {
 
 	LegacyCreateCiJob(ctx context.Context, body LegacyCreateCiJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetFindingHistoryWithBody request with any body
+	GetFindingHistoryWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	GetFindingHistory(ctx context.Context, body GetFindingHistoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PullUntriagedFinding request
 	PullUntriagedFinding(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1074,10 +1244,10 @@ type ClientInterface interface {
 
 	JobCompleted(ctx context.Context, body JobCompletedJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateCiJobWithBody request with any body
-	CreateCiJobWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// CreateJobWithBody request with any body
+	CreateJobWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	CreateCiJob(ctx context.Context, body CreateCiJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	CreateJob(ctx context.Context, body CreateJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// JobFailedWithBody request with any body
 	JobFailedWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1191,6 +1361,30 @@ func (c *Client) LegacyCreateCiJobWithBody(ctx context.Context, contentType stri
 
 func (c *Client) LegacyCreateCiJob(ctx context.Context, body LegacyCreateCiJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewLegacyCreateCiJobRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetFindingHistoryWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetFindingHistoryRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetFindingHistory(ctx context.Context, body GetFindingHistoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetFindingHistoryRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1369,8 +1563,8 @@ func (c *Client) JobCompleted(ctx context.Context, body JobCompletedJSONRequestB
 	return c.Client.Do(req)
 }
 
-func (c *Client) CreateCiJobWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateCiJobRequestWithBody(c.Server, contentType, body)
+func (c *Client) CreateJobWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateJobRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1381,8 +1575,8 @@ func (c *Client) CreateCiJobWithBody(ctx context.Context, contentType string, bo
 	return c.Client.Do(req)
 }
 
-func (c *Client) CreateCiJob(ctx context.Context, body CreateCiJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateCiJobRequest(c.Server, body)
+func (c *Client) CreateJob(ctx context.Context, body CreateJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateJobRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1809,6 +2003,46 @@ func NewLegacyCreateCiJobRequestWithBody(server string, contentType string, body
 	return req, nil
 }
 
+// NewGetFindingHistoryRequest calls the generic GetFindingHistory builder with application/json body
+func NewGetFindingHistoryRequest(server string, body GetFindingHistoryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewGetFindingHistoryRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewGetFindingHistoryRequestWithBody generates requests for GetFindingHistory with any type of body
+func NewGetFindingHistoryRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agent/finding/history")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewPullUntriagedFindingRequest generates requests for PullUntriagedFinding
 func NewPullUntriagedFindingRequest(server string) (*http.Request, error) {
 	var err error
@@ -2140,19 +2374,19 @@ func NewJobCompletedRequestWithBody(server string, contentType string, body io.R
 	return req, nil
 }
 
-// NewCreateCiJobRequest calls the generic CreateCiJob builder with application/json body
-func NewCreateCiJobRequest(server string, body CreateCiJobJSONRequestBody) (*http.Request, error) {
+// NewCreateJobRequest calls the generic CreateJob builder with application/json body
+func NewCreateJobRequest(server string, body CreateJobJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewCreateCiJobRequestWithBody(server, "application/json", bodyReader)
+	return NewCreateJobRequestWithBody(server, "application/json", bodyReader)
 }
 
-// NewCreateCiJobRequestWithBody generates requests for CreateCiJob with any type of body
-func NewCreateCiJobRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+// NewCreateJobRequestWithBody generates requests for CreateJob with any type of body
+func NewCreateJobRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -2874,6 +3108,11 @@ type ClientWithResponsesInterface interface {
 
 	LegacyCreateCiJobWithResponse(ctx context.Context, body LegacyCreateCiJobJSONRequestBody, reqEditors ...RequestEditorFn) (*LegacyCreateCiJobResponse, error)
 
+	// GetFindingHistoryWithBodyWithResponse request with any body
+	GetFindingHistoryWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GetFindingHistoryResponse, error)
+
+	GetFindingHistoryWithResponse(ctx context.Context, body GetFindingHistoryJSONRequestBody, reqEditors ...RequestEditorFn) (*GetFindingHistoryResponse, error)
+
 	// PullUntriagedFindingWithResponse request
 	PullUntriagedFindingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PullUntriagedFindingResponse, error)
 
@@ -2910,10 +3149,10 @@ type ClientWithResponsesInterface interface {
 
 	JobCompletedWithResponse(ctx context.Context, body JobCompletedJSONRequestBody, reqEditors ...RequestEditorFn) (*JobCompletedResponse, error)
 
-	// CreateCiJobWithBodyWithResponse request with any body
-	CreateCiJobWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCiJobResponse, error)
+	// CreateJobWithBodyWithResponse request with any body
+	CreateJobWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateJobResponse, error)
 
-	CreateCiJobWithResponse(ctx context.Context, body CreateCiJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCiJobResponse, error)
+	CreateJobWithResponse(ctx context.Context, body CreateJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateJobResponse, error)
 
 	// JobFailedWithBodyWithResponse request with any body
 	JobFailedWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*JobFailedResponse, error)
@@ -3028,6 +3267,28 @@ func (r LegacyCreateCiJobResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r LegacyCreateCiJobResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetFindingHistoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]FindingHistoryItem
+}
+
+// Status returns HTTPResponse.Status
+func (r GetFindingHistoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetFindingHistoryResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -3210,7 +3471,7 @@ func (r JobCompletedResponse) StatusCode() int {
 	return 0
 }
 
-type CreateCiJobResponse struct {
+type CreateJobResponse struct {
 	Body                      []byte
 	HTTPResponse              *http.Response
 	JSON200                   *CreateCiJobResult
@@ -3218,7 +3479,7 @@ type CreateCiJobResponse struct {
 }
 
 // Status returns HTTPResponse.Status
-func (r CreateCiJobResponse) Status() string {
+func (r CreateJobResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -3226,7 +3487,7 @@ func (r CreateCiJobResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r CreateCiJobResponse) StatusCode() int {
+func (r CreateJobResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -3644,6 +3905,23 @@ func (c *ClientWithResponses) LegacyCreateCiJobWithResponse(ctx context.Context,
 	return ParseLegacyCreateCiJobResponse(rsp)
 }
 
+// GetFindingHistoryWithBodyWithResponse request with arbitrary body returning *GetFindingHistoryResponse
+func (c *ClientWithResponses) GetFindingHistoryWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GetFindingHistoryResponse, error) {
+	rsp, err := c.GetFindingHistoryWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetFindingHistoryResponse(rsp)
+}
+
+func (c *ClientWithResponses) GetFindingHistoryWithResponse(ctx context.Context, body GetFindingHistoryJSONRequestBody, reqEditors ...RequestEditorFn) (*GetFindingHistoryResponse, error) {
+	rsp, err := c.GetFindingHistory(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetFindingHistoryResponse(rsp)
+}
+
 // PullUntriagedFindingWithResponse request returning *PullUntriagedFindingResponse
 func (c *ClientWithResponses) PullUntriagedFindingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PullUntriagedFindingResponse, error) {
 	rsp, err := c.PullUntriagedFinding(ctx, reqEditors...)
@@ -3764,21 +4042,21 @@ func (c *ClientWithResponses) JobCompletedWithResponse(ctx context.Context, body
 	return ParseJobCompletedResponse(rsp)
 }
 
-// CreateCiJobWithBodyWithResponse request with arbitrary body returning *CreateCiJobResponse
-func (c *ClientWithResponses) CreateCiJobWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCiJobResponse, error) {
-	rsp, err := c.CreateCiJobWithBody(ctx, contentType, body, reqEditors...)
+// CreateJobWithBodyWithResponse request with arbitrary body returning *CreateJobResponse
+func (c *ClientWithResponses) CreateJobWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateJobResponse, error) {
+	rsp, err := c.CreateJobWithBody(ctx, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseCreateCiJobResponse(rsp)
+	return ParseCreateJobResponse(rsp)
 }
 
-func (c *ClientWithResponses) CreateCiJobWithResponse(ctx context.Context, body CreateCiJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCiJobResponse, error) {
-	rsp, err := c.CreateCiJob(ctx, body, reqEditors...)
+func (c *ClientWithResponses) CreateJobWithResponse(ctx context.Context, body CreateJobJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateJobResponse, error) {
+	rsp, err := c.CreateJob(ctx, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseCreateCiJobResponse(rsp)
+	return ParseCreateJobResponse(rsp)
 }
 
 // JobFailedWithBodyWithResponse request with arbitrary body returning *JobFailedResponse
@@ -4081,6 +4359,32 @@ func ParseLegacyCreateCiJobResponse(rsp *http.Response) (*LegacyCreateCiJobRespo
 	return response, nil
 }
 
+// ParseGetFindingHistoryResponse parses an HTTP response from a GetFindingHistoryWithResponse call
+func ParseGetFindingHistoryResponse(rsp *http.Response) (*GetFindingHistoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetFindingHistoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []FindingHistoryItem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePullUntriagedFindingResponse parses an HTTP response from a PullUntriagedFindingWithResponse call
 func ParsePullUntriagedFindingResponse(rsp *http.Response) (*PullUntriagedFindingResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -4289,15 +4593,15 @@ func ParseJobCompletedResponse(rsp *http.Response) (*JobCompletedResponse, error
 	return response, nil
 }
 
-// ParseCreateCiJobResponse parses an HTTP response from a CreateCiJobWithResponse call
-func ParseCreateCiJobResponse(rsp *http.Response) (*CreateCiJobResponse, error) {
+// ParseCreateJobResponse parses an HTTP response from a CreateJobWithResponse call
+func ParseCreateJobResponse(rsp *http.Response) (*CreateJobResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &CreateCiJobResponse{
+	response := &CreateJobResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
