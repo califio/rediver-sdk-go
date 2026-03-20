@@ -3,8 +3,11 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/califio/rediver-sdk-go/internal/api"
 	"github.com/califio/rediver-sdk-go/internal/auth"
@@ -66,6 +69,7 @@ func (c *Client) doRegister(ctx context.Context, req auth.RegistrationRequest) (
 		Hostname:     strPtr(req.Hostname),
 		IpAddress:    strPtr(req.IPAddress),
 		Version:      strPtr(req.Version),
+		SdkVersion:   strPtr(req.SdkVersion),
 	})
 	if err != nil {
 		return nil, err
@@ -211,6 +215,48 @@ func (c *Client) UpdateScanner(ctx context.Context, req api.UpdateAgentScannerRe
 		return fmt.Errorf("update scanner failed: status %d: %s", res.StatusCode(), string(res.Body))
 	}
 	return nil
+}
+
+// artifactDownloadResponse is the JSON body from GET /api/artifact/{id}/download.
+type artifactDownloadResponse struct {
+	PresignedUrl string `json:"presigned_url"`
+	ExpiresIn    int    `json:"expires_in"`
+}
+
+// GetArtifactPresignedURL calls GET /api/artifact/{artifactID}/download and returns the presigned URL.
+func (c *Client) GetArtifactPresignedURL(ctx context.Context, artifactID string) (string, error) {
+	rawURL := strings.TrimRight(c.baseURL, "/") + "/api/artifact/" + artifactID + "/download"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("build artifact download request: %w", err)
+	}
+	token := c.tokenManager.AgentToken()
+	if token != "" {
+		req.Header.Set("X-Token", token)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("artifact download request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 410 {
+		return "", fmt.Errorf("artifact has expired (410)")
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("artifact download failed: status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result artifactDownloadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode artifact download response: %w", err)
+	}
+	if result.PresignedUrl == "" {
+		return "", fmt.Errorf("artifact download response missing presigned_url")
+	}
+	return result.PresignedUrl, nil
 }
 
 // CheckAndRetry wraps an API call with 401 detection and re-registration retry.

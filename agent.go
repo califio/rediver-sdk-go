@@ -252,11 +252,12 @@ func (a *Agent) remapScannerNames(scanners []auth.RegisteredScannerInfo) {
 
 func (a *Agent) buildRegistrationRequest() auth.RegistrationRequest {
 	return auth.RegistrationRequest{
-		Scanners:  a.scannerNamesList(),
-		AgentID:   a.config.agentID,
-		Hostname:  a.config.hostname,
-		IPAddress: utils.GetIPAddress(),
-		Version:   a.config.version,
+		Scanners:   a.scannerNamesList(),
+		AgentID:    a.config.agentID,
+		Hostname:   a.config.hostname,
+		IPAddress:  utils.GetIPAddress(),
+		Version:    a.config.version,
+		SdkVersion: SdkVersion,
 	}
 }
 
@@ -553,6 +554,7 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 		AcceptUntaggedJobs: ci.AcceptUntaggedJobs,
 		MaxConcurrentJobs:  ci.MaxConcurrentJobs,
 	})
+	j.(*job).artifactDownloadFn = a.client.GetArtifactPresignedURL
 
 	// 4. Attach job logger + log transport
 	jobLogger, bufHandler := newJobLogger(jobID, scannerName, a.config.logger)

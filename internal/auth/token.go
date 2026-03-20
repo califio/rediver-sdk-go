@@ -31,11 +31,12 @@ func (m RunMode) String() string {
 // RegistrationRequest is the data sent to POST /api/agent/register.
 // Worker mode only — sends scanner names (no metadata).
 type RegistrationRequest struct {
-	Scanners  []string // scanner names only
-	AgentID   string   // cached, may be empty
-	Hostname  string
-	IPAddress string
-	Version   string
+	Scanners   []string // scanner names only
+	AgentID    string   // cached, may be empty
+	Hostname   string
+	IPAddress  string
+	Version    string
+	SdkVersion string
 }
 
 // RegisteredScannerInfo is returned by backend after registration or token exchange.

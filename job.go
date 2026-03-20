@@ -1,11 +1,17 @@
 package rediver
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/califio/rediver-sdk-go/internal/api"
 	"github.com/califio/rediver-sdk-go/utils"
@@ -49,15 +55,20 @@ type Integration struct {
 }
 
 // Repository contains git repository information for CI/SAST jobs.
+// ArtifactID is non-empty when the source code is delivered as a pre-uploaded
+// artifact (tar.gz) rather than a live git clone.
 type Repository struct {
 	URL           string
-	Ref           string
-	RefType       string
-	BaseRef       string
-	RefSpecs      []string
-	Depth         int
+	Provider      string // "gitlab" | "github" — scanner may behave differently per provider
+	Event         string // "push" | "merge_request" | "pull_request"
+	Ref           string // raw ref: "refs/heads/main", "refs/tags/v1.0"
+	Branch        string
 	CommitSHA     string
+	BaseBranch    string
 	BaseCommitSHA string
+	PrNumber      int
+	ArtifactID    string `json:"artifact_id"`
+	DiffOnly      bool   // true = scan changed files only
 	Username      string
 	Password      string
 }
@@ -154,15 +165,21 @@ type Job interface {
 	Logger() *slog.Logger
 }
 
+// artifactDownloadFunc fetches a presigned download URL for the given artifactID.
+// Returns the presigned URL string on success.
+type artifactDownloadFunc func(ctx context.Context, artifactID string) (string, error)
+
 // job is the internal implementation of Job.
 type job struct {
-	detail      *api.JobDetail
-	params      map[string]interface{}
-	clusterInfo ClusterInfo
-	ciContext     *CIContext   // non-nil = CI mode
-	logger        *slog.Logger // job-scoped logger (multi-handler: console + buffer)
-	repoDir       string       // prepared repo path (CI dir or cloned temp dir)
-	clonedRepoDir string       // non-empty only when SDK cloned it → needs cleanup
+	detail               *api.JobDetail
+	params               map[string]interface{}
+	clusterInfo          ClusterInfo
+	ciContext            *CIContext            // non-nil = CI mode
+	logger               *slog.Logger          // job-scoped logger (multi-handler: console + buffer)
+	repoDir              string                // prepared repo path (CI dir or cloned temp dir)
+	clonedRepoDir        string                // non-empty only when SDK cloned it → needs cleanup
+	resolvedBaseSHA      string                // resolved via git merge-base when server didn't provide BaseCommitSHA
+	artifactDownloadFn   artifactDownloadFunc  // injected by Agent for artifact-based repos
 }
 
 func newJob(detail *api.JobDetail, ci ...ClusterInfo) Job {
@@ -384,26 +401,35 @@ func (j *job) Repository() (*Repository, bool) {
 	if r.Url != nil {
 		repo.URL = *r.Url
 	}
-	if r.Branch != nil {
-		repo.Ref = *r.Branch
+	if r.Provider != nil {
+		repo.Provider = *r.Provider
 	}
 	if r.Event != nil {
-		repo.RefType = *r.Event
+		repo.Event = *r.Event
 	}
-	if r.BaseBranch != nil {
-		repo.BaseRef = *r.BaseBranch
+	if r.Ref != nil {
+		repo.Ref = *r.Ref
 	}
-	if r.RefSpecs != nil {
-		repo.RefSpecs = *r.RefSpecs
-	}
-	if r.Depth != nil {
-		repo.Depth = int(*r.Depth)
+	if r.Branch != nil {
+		repo.Branch = *r.Branch
 	}
 	if r.CommitSha != nil {
 		repo.CommitSHA = *r.CommitSha
 	}
+	if r.BaseBranch != nil {
+		repo.BaseBranch = *r.BaseBranch
+	}
 	if r.BaseCommitSha != nil {
 		repo.BaseCommitSHA = *r.BaseCommitSha
+	}
+	if r.PrNumber != nil {
+		repo.PrNumber = int(*r.PrNumber)
+	}
+	if r.ArtifactId != nil {
+		repo.ArtifactID = *r.ArtifactId
+	}
+	if r.DiffOnly != nil {
+		repo.DiffOnly = *r.DiffOnly
 	}
 	if r.Credential != nil {
 		if r.Credential.Username != nil {
@@ -413,6 +439,10 @@ func (j *job) Repository() (*Repository, bool) {
 			repo.Password = *r.Credential.Password
 		}
 	}
+	// Populate BaseCommitSHA from resolved merge-base if server didn't provide it
+	if repo.BaseCommitSHA == "" && j.resolvedBaseSHA != "" {
+		repo.BaseCommitSHA = j.resolvedBaseSHA
+	}
 	return repo, true
 }
 
@@ -421,7 +451,9 @@ func (j *job) RepoDir() string {
 }
 
 // prepareRepository sets up the repo directory for scanning.
-// CI mode: uses CI-provided checkout dir. Worker mode: clones to temp dir.
+// CI mode: uses CI-provided checkout dir.
+// Artifact mode: downloads and extracts the pre-uploaded tar.gz artifact.
+// Worker mode: clones to temp dir via git.
 func (j *job) prepareRepository(ctx context.Context) error {
 	if j.ciContext != nil {
 		j.repoDir = j.ciContext.RepoDir
@@ -431,6 +463,13 @@ func (j *job) prepareRepository(ctx context.Context) error {
 	repo, ok := j.Repository()
 	if !ok {
 		return fmt.Errorf("no repository target")
+	}
+
+	// Artifact path: download pre-uploaded tar.gz instead of git clone.
+	// Connector already resolved merge-base and included .git in archive.
+	// BaseCommitSHA from job context is the resolved merge-base — use directly.
+	if repo.ArtifactID != "" {
+		return j.prepareArchive(ctx, repo)
 	}
 
 	repoURL, err := j.buildRepoURL(repo)
@@ -443,11 +482,13 @@ func (j *job) prepareRepository(ctx context.Context) error {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
 
+	// Build refspecs based on event type and provider.
+	refs, checkoutRef := buildRefSpecs(repo)
 	err = utils.GitCheckout(ctx, utils.CheckoutOptions{
 		WorkDir:     workDir,
 		RepoURL:     repoURL,
-		Refs:        repo.RefSpecs,
-		CheckoutRef: repo.CommitSHA,
+		Refs:        refs,
+		CheckoutRef: checkoutRef,
 	})
 	if err != nil {
 		os.RemoveAll(workDir)
@@ -456,6 +497,196 @@ func (j *job) prepareRepository(ctx context.Context) error {
 
 	j.repoDir = workDir
 	j.clonedRepoDir = workDir // track for cleanup
+
+	// For MR/PR: always resolve base commit from target branch via merge-base.
+	// More reliable than server-provided BaseCommitSHA (oldrev) because:
+	// 1. MR create: server sends empty BaseCommitSHA
+	// 2. MR update: server sends oldrev (previous head) which may not be fetchable in shallow clone
+	// 3. merge-base finds the actual common ancestor — correct for diff
+	if (repo.Event == "merge_request" || repo.Event == "pull_request") && repo.BaseBranch != "" {
+		if sha, err := utils.GitMergeBase(ctx, workDir, "origin/"+repo.BaseBranch, "HEAD"); err == nil && sha != "" {
+			j.resolvedBaseSHA = sha
+		}
+	}
+
+	return nil
+}
+
+// buildRefSpecs constructs git refspecs and checkout ref based on event type and provider.
+//
+// Strategy per event:
+//   - push:           fetch branch ref, checkout commit SHA
+//   - merge_request:  fetch MR head ref + base branch, checkout MR head (for diff: base..head)
+//   - pull_request:   fetch PR head SHA + base SHA (GitHub allows fetch by SHA), checkout head
+//
+// Returns (refspecs to fetch, ref to checkout after fetch).
+func buildRefSpecs(repo *Repository) (refs []string, checkoutRef string) {
+	switch repo.Event {
+	case "merge_request", "pull_request":
+		refs, checkoutRef = buildMrPrRefSpecs(repo)
+	default:
+		// Push/tag: detect tag vs branch from Ref field
+		if strings.HasPrefix(repo.Ref, "refs/tags/") {
+			refs = append(refs, repo.Ref)
+		} else if repo.Branch != "" {
+			refs = append(refs, fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", repo.Branch, repo.Branch))
+		}
+		// Fetch base commit for diff (push "before" SHA)
+		if repo.BaseCommitSHA != "" {
+			refs = append(refs, repo.BaseCommitSHA)
+		}
+		checkoutRef = repo.CommitSHA
+	}
+
+	// Fallback
+	if len(refs) == 0 && repo.CommitSHA != "" {
+		refs = append(refs, repo.CommitSHA)
+	}
+	if checkoutRef == "" {
+		checkoutRef = repo.CommitSHA
+	}
+
+	return refs, checkoutRef
+}
+
+// buildMrPrRefSpecs returns fetch refs + checkout ref for MR/PR events.
+// Each provider uses different ref namespaces for merge requests.
+// Always fetches both head + base for diff capability (git diff base..head).
+func buildMrPrRefSpecs(repo *Repository) (refs []string, checkoutRef string) {
+	// Head ref — provider-specific
+	switch repo.Provider {
+	case "gitlab":
+		// GitLab: must use named ref (doesn't allow fetch by SHA)
+		if repo.PrNumber > 0 {
+			refs = append(refs, fmt.Sprintf("refs/merge-requests/%d/head", repo.PrNumber))
+		}
+		checkoutRef = "FETCH_HEAD"
+
+	case "github":
+		// GitHub: allows fetch by SHA directly
+		if repo.CommitSHA != "" {
+			refs = append(refs, repo.CommitSHA)
+		}
+		checkoutRef = repo.CommitSHA
+
+	case "bitbucket":
+		// Bitbucket: uses refs/pull-requests/{id}/from
+		if repo.PrNumber > 0 {
+			refs = append(refs, fmt.Sprintf("refs/pull-requests/%d/from", repo.PrNumber))
+		}
+		checkoutRef = "FETCH_HEAD"
+
+	default:
+		// Unknown provider: try SHA, fallback to branch
+		if repo.CommitSHA != "" {
+			refs = append(refs, repo.CommitSHA)
+		}
+		checkoutRef = repo.CommitSHA
+	}
+
+	// Base ref — always fetch base branch for merge-base resolution
+	// Don't fetch BaseCommitSHA (oldrev) — may not be fetchable in shallow clone
+	// SDK resolves actual base via git merge-base after checkout
+	if repo.BaseBranch != "" {
+		refs = append(refs, fmt.Sprintf("refs/heads/%s", repo.BaseBranch))
+	}
+
+	return refs, checkoutRef
+}
+
+// prepareArchive downloads the artifact presigned URL and extracts the tar.gz
+// into a temp directory, then sets j.repoDir to the extracted path.
+// Path traversal is prevented by rejecting any entry whose resolved path
+// does not have the temp dir as a prefix.
+func (j *job) prepareArchive(ctx context.Context, repo *Repository) error {
+	if j.artifactDownloadFn == nil {
+		return fmt.Errorf("artifact download not available in this run mode")
+	}
+
+	// 1. Get presigned download URL from backend.
+	presignedURL, err := j.artifactDownloadFn(ctx, repo.ArtifactID)
+	if err != nil {
+		return fmt.Errorf("get artifact download URL: %w", err)
+	}
+
+	// 2. Prepare extraction directory.
+	tmpDir, err := os.MkdirTemp(os.TempDir(), "artifact_")
+	if err != nil {
+		return fmt.Errorf("create artifact temp dir: %w", err)
+	}
+
+	// 3. Stream-download and extract — no full-file buffering.
+	if err := j.downloadAndExtract(ctx, presignedURL, tmpDir); err != nil {
+		os.RemoveAll(tmpDir)
+		return fmt.Errorf("extract artifact: %w", err)
+	}
+
+	j.repoDir = tmpDir
+	j.clonedRepoDir = tmpDir // track for cleanup
+	return nil
+}
+
+// downloadAndExtract streams a tar.gz from url and extracts it into destDir.
+func (j *job) downloadAndExtract(ctx context.Context, rawURL string, destDir string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return fmt.Errorf("build download request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("download artifact: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("download artifact: unexpected status %d", resp.StatusCode)
+	}
+
+	gz, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		return fmt.Errorf("open gzip stream: %w", err)
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read tar entry: %w", err)
+		}
+
+		// Path traversal guard: resolve against destDir and verify prefix.
+		cleanRel := filepath.Clean("/" + hdr.Name) // collapse ".." sequences
+		target := filepath.Join(destDir, cleanRel)
+		if !strings.HasPrefix(target+string(filepath.Separator), destDir+string(filepath.Separator)) {
+			return fmt.Errorf("tar entry %q escapes destination directory", hdr.Name)
+		}
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0750); err != nil {
+				return fmt.Errorf("create dir %q: %w", target, err)
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0750); err != nil {
+				return fmt.Errorf("create parent dir for %q: %w", target, err)
+			}
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode)&0750)
+			if err != nil {
+				return fmt.Errorf("create file %q: %w", target, err)
+			}
+			if _, err := io.Copy(f, tr); err != nil {
+				f.Close()
+				return fmt.Errorf("write file %q: %w", target, err)
+			}
+			f.Close()
+		}
+		// Symlinks and other special types are skipped for security.
+	}
 	return nil
 }
 
@@ -497,7 +728,7 @@ func (j *job) ChangedFiles(ctx context.Context) (*utils.ChangedFiles, error) {
 		return nil, fmt.Errorf("no repository target")
 	}
 
-	if repo.BaseCommitSHA == "" || repo.CommitSHA == "" {
+	if repo.CommitSHA == "" {
 		return nil, nil
 	}
 
@@ -505,7 +736,21 @@ func (j *job) ChangedFiles(ctx context.Context) (*utils.ChangedFiles, error) {
 		return nil, fmt.Errorf("repository not prepared")
 	}
 
-	return utils.GitDiff(ctx, j.repoDir, repo.BaseCommitSHA, repo.CommitSHA)
+	// Resolve base ref for diff:
+	// 1. BaseCommitSHA if available (MR update events provide this)
+	// 2. Fallback to origin/{base_branch} (MR create events — base branch was fetched by buildRefSpecs)
+	// 3. No base available → return nil (full scan, no diff)
+	baseRef := repo.BaseCommitSHA
+	if baseRef == "" && repo.BaseBranch != "" {
+		baseRef = "origin/" + repo.BaseBranch
+	}
+	if baseRef == "" {
+		return nil, nil
+	}
+
+	// Use HEAD (current checkout) as head ref — more reliable than CommitSHA
+	// because GitLab MR checkout lands on FETCH_HEAD, not a named ref.
+	return utils.GitDiff(ctx, j.repoDir, baseRef, "HEAD")
 }
 
 func (j *job) ClusterInfo() ClusterInfo {

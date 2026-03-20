@@ -59,6 +59,21 @@ func GitFetch(ctx context.Context, repoPath string, refs ...string) {
 	}
 }
 
+// GitMergeBase finds the common ancestor of two commits.
+// Returns the merge-base SHA, or empty string + error if not found.
+func GitMergeBase(ctx context.Context, repoPath, ref1, ref2 string) (string, error) {
+	var lines []string
+	_, err := Exec(ctx, "git", []string{"merge-base", ref1, ref2},
+		WithWorkDir(repoPath),
+		WithStdout(func(line string) { lines = append(lines, line) }),
+	)
+	if err != nil {
+		return "", err
+	}
+	result := strings.Join(lines, "")
+	return strings.TrimSpace(result), nil
+}
+
 // GitDiff returns files changed between two commits.
 func GitDiff(ctx context.Context, repoPath, baseCommit, headCommit string) (*ChangedFiles, error) {
 	if baseCommit == "" {

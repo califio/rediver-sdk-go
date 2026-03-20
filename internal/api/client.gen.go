@@ -150,6 +150,7 @@ type AgentRegisterRequest struct {
 	Hostname     *string  `json:"hostname"`
 	IpAddress    *string  `json:"ip_address"`
 	Scanners     []string `json:"scanners"`
+	SdkVersion   *string  `json:"sdk_version,omitempty"`
 	Version      *string  `json:"version"`
 }
 
@@ -759,14 +760,17 @@ type RawRequest struct {
 
 // RepositoryContext defines model for RepositoryContext.
 type RepositoryContext struct {
+	ArtifactId    *string          `json:"artifact_id,omitempty"`
 	BaseBranch    *string          `json:"base_branch"`
 	BaseCommitSha *string          `json:"base_commit_sha"`
 	Branch        *string          `json:"branch"`
 	CommitSha     *string          `json:"commit_sha"`
 	Credential    *AssetCredential `json:"credential,omitempty"`
-	Depth         *int32           `json:"depth"`
+	DiffOnly      *bool            `json:"diff_only,omitempty"`
 	Event         *string          `json:"event,omitempty"`
-	RefSpecs      *[]string        `json:"ref_specs,omitempty"`
+	PrNumber      *int32           `json:"pr_number,omitempty"`
+	Provider      *string          `json:"provider,omitempty"`
+	Ref           *string          `json:"ref,omitempty"`
 	Url           *string          `json:"url,omitempty"`
 }
 
