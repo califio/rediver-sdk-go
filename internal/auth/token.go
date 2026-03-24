@@ -202,6 +202,7 @@ func (tm *TokenManager) Connect(ctx context.Context, req ConnectRequest) (*Conne
 // Reregister re-registers with cluster token. Thread-safe, single-flight.
 // oldToken is the token the caller had when it received 401.
 // Returns nil if another goroutine already re-registered successfully.
+// Worker mode uses registerFn (full registration), Task/CI mode uses connectFn (token exchange).
 func (tm *TokenManager) Reregister(ctx context.Context, oldToken string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -212,23 +213,35 @@ func (tm *TokenManager) Reregister(ctx context.Context, oldToken string) error {
 		return nil // already re-registered
 	}
 
-	if tm.registerFn == nil {
-		return fmt.Errorf("register function not set")
+	// Worker mode: full re-registration (creates/updates agent record in DB)
+	if tm.runMode == RunModeWorker {
+		if tm.registerFn == nil {
+			return fmt.Errorf("register function not set")
+		}
+		resp, err := tm.registerFn(ctx, tm.regReq)
+		if err != nil {
+			return fmt.Errorf("re-register: %w", err)
+		}
+		tm.agentToken.Store(resp.Token)
+		tm.agentID = resp.AgentID
+		tm.clusterInfo = resp.ClusterInfo
+		if tm.persist != nil && resp.AgentID != "" {
+			_ = tm.persist.WriteAgentID(resp.AgentID)
+		}
+		return nil
 	}
 
-	resp, err := tm.registerFn(ctx, tm.regReq)
+	// Task/CI mode: lightweight token exchange (no DB record)
+	if tm.connectFn == nil {
+		return fmt.Errorf("connect function not set")
+	}
+	resp, err := tm.connectFn(ctx, ConnectRequest{})
 	if err != nil {
-		return fmt.Errorf("re-register: %w", err)
+		return fmt.Errorf("re-connect: %w", err)
 	}
-
 	tm.agentToken.Store(resp.Token)
 	tm.agentID = resp.AgentID
 	tm.clusterInfo = resp.ClusterInfo
-
-	if tm.persist != nil && resp.AgentID != "" {
-		_ = tm.persist.WriteAgentID(resp.AgentID)
-	}
-
 	return nil
 }
 

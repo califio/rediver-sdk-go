@@ -503,6 +503,21 @@ func (a *Agent) pullJob(ctx context.Context) (string, error) {
 		return "", err
 	}
 
+	// 401 → re-register with cluster token and retry once
+	if res.StatusCode() == 401 {
+		oldToken := a.tokenManager.AgentToken()
+		if rerr := a.tokenManager.Reregister(ctx, oldToken); rerr != nil {
+			return "", fmt.Errorf("re-registration after 401: %w", rerr)
+		}
+		a.config.logger.Info("re-registered after token expiry")
+
+		// Retry pull with new token
+		res, err = a.client.RequestJobWithResponse(ctx)
+		if err != nil {
+			return "", err
+		}
+	}
+
 	if res.StatusCode() == 204 {
 		return "", ErrNoJobAvailable
 	}
