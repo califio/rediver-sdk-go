@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-03-24
+
+### Fixed
+- `pullJob` now auto-re-registers on 401 response — agents no longer get stuck in infinite retry loops with expired tokens after backend downtime
+- `Reregister` supports Task/CI mode via `connectFn` (was Worker-only, would fail with "register function not set")
+
+### Added
+- 8 unit tests for `Reregister` covering Worker/Task/CI modes, single-flight dedup, and error cases
+- 4 integration tests with httptest mock server for `pullJob` 401 → re-register → retry flow
+
 ## [1.0.2] - 2026-03-13
 
 ### Added
