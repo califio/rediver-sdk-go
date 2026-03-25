@@ -40,11 +40,8 @@ type RegistrationRequest struct {
 }
 
 // RegisteredScannerInfo is returned by backend after registration or token exchange.
-// RequestName is the original name sent by the agent; Name is the resolved name in the DB.
-// SDK uses RequestName → Name mapping to remap internal scanner registry.
 type RegisteredScannerInfo struct {
-	Name         string                 // resolved scanner name in DB (e.g., "custom_semgrep")
-	RequestName  string                 // original name from agent registration request (e.g., "semgrep")
+	Name         string                 // scanner name in DB
 	DisplayName  string                 // human-readable label from DB
 	ParamsSchema map[string]interface{} // current JSON Schema in DB, nil if none
 	System       bool                   // true if this is a system scanner
@@ -164,7 +161,6 @@ func (tm *TokenManager) SetRevokeFunc(fn RevokeFunc) {
 }
 
 // Register performs initial registration. Must be called once before any API calls.
-// Returns the registration response for caller inspection (e.g., scanner name remapping).
 func (tm *TokenManager) Register(ctx context.Context, req RegistrationRequest) (*RegistrationResponse, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()

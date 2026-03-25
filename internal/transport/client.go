@@ -69,7 +69,6 @@ func (c *Client) doRegister(ctx context.Context, req auth.RegistrationRequest) (
 		Hostname:     strPtr(req.Hostname),
 		IpAddress:    strPtr(req.IPAddress),
 		Version:      strPtr(req.Version),
-		SdkVersion:   strPtr(req.SdkVersion),
 	})
 	if err != nil {
 		return nil, err
@@ -127,7 +126,6 @@ func parseClusterInfo(ci *api.AgentClusterInfo) auth.ClusterInfo {
 func parseScannerInfo(s api.ScannerInfo) auth.RegisteredScannerInfo {
 	return auth.RegisteredScannerInfo{
 		Name:        derefStr(s.Name),
-		RequestName: derefStr(s.RequestName),
 		DisplayName: derefStr(s.DisplayName),
 		System:      s.System != nil && *s.System,
 	}
@@ -265,7 +263,6 @@ func (c *Client) DoGenerateToken(ctx context.Context, req auth.GenerateTokenRequ
 		ExpiresAt: result.ExpiresAt,
 		Scanner: auth.RegisteredScannerInfo{
 			Name:        result.Scanner.Name,
-			RequestName: result.Scanner.RequestName,
 			DisplayName: result.Scanner.DisplayName,
 			System:      result.Scanner.System,
 		},

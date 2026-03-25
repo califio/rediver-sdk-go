@@ -150,7 +150,6 @@ type AgentRegisterRequest struct {
 	Hostname     *string  `json:"hostname"`
 	IpAddress    *string  `json:"ip_address"`
 	Scanners     []string `json:"scanners"`
-	SdkVersion   *string  `json:"sdk_version,omitempty"`
 	Version      *string  `json:"version"`
 }
 
@@ -690,12 +689,12 @@ type JobStartResult struct {
 
 // JobTarget defines model for JobTarget.
 type JobTarget struct {
-	Container  *ContainerContext  `json:"container,omitempty"`
-	Domains    *[]DomainAsset     `json:"domains,omitempty"`
-	Ips        *[]ValueAsset      `json:"ips,omitempty"`
-	Repository *RepositoryContext `json:"repository,omitempty"`
-	Services   *[]ServiceAsset    `json:"services,omitempty"`
-	Subnets    *[]ValueAsset      `json:"subnets,omitempty"`
+	Container  *ContainerContext     `json:"container,omitempty"`
+	Domains    *[]DomainAsset        `json:"domains,omitempty"`
+	Ips        *[]ValueAsset         `json:"ips,omitempty"`
+	Repository *RepositoryJobContext `json:"repository,omitempty"`
+	Services   *[]ServiceAsset       `json:"services,omitempty"`
+	Subnets    *[]ValueAsset         `json:"subnets,omitempty"`
 }
 
 // PullUntriagedCredentialLeakResult defines model for PullUntriagedCredentialLeakResult.
@@ -758,9 +757,9 @@ type RawRequest struct {
 	Response  *string    `json:"response"`
 }
 
-// RepositoryContext defines model for RepositoryContext.
-type RepositoryContext struct {
-	ArtifactId    *string          `json:"artifact_id,omitempty"`
+// RepositoryJobContext defines model for RepositoryJobContext.
+type RepositoryJobContext struct {
+	ArtifactId    *string          `json:"artifact_id"`
 	BaseBranch    *string          `json:"base_branch"`
 	BaseCommitSha *string          `json:"base_commit_sha"`
 	Branch        *string          `json:"branch"`
@@ -768,7 +767,7 @@ type RepositoryContext struct {
 	Credential    *AssetCredential `json:"credential,omitempty"`
 	DiffOnly      *bool            `json:"diff_only,omitempty"`
 	Event         *string          `json:"event,omitempty"`
-	PrNumber      *int32           `json:"pr_number,omitempty"`
+	PrNumber      *int32           `json:"pr_number"`
 	Provider      *string          `json:"provider,omitempty"`
 	Ref           *string          `json:"ref,omitempty"`
 	Url           *string          `json:"url,omitempty"`

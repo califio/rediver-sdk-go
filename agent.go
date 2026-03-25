@@ -145,9 +145,8 @@ func (a *Agent) Run(ctx context.Context, runOpts ...RunOption) error {
 			return fmt.Errorf("connect: %w", err)
 		}
 
-		// Remap + update scanner metadata if scanners were returned
+		// Update scanner metadata if scanners were returned
 		if connResp != nil && len(connResp.Scanners) > 0 {
-			a.remapScannerNames(connResp.Scanners)
 			a.updateScannerMetadata(ctx, connResp.Scanners, connResp.System)
 		}
 
@@ -203,9 +202,9 @@ func (a *Agent) RunAsCI(ctx context.Context) error {
 		return fmt.Errorf("connect: %w", err)
 	}
 
-	// Remap scanner names if backend resolved differently (e.g., custom_ prefix)
+	// Update scanner metadata if scanners were returned
 	if connResp != nil && len(connResp.Scanners) > 0 {
-		a.remapScannerNames(connResp.Scanners)
+		a.updateScannerMetadata(ctx, connResp.Scanners, connResp.System)
 	}
 
 	a.config.logger.Info("connected to server (CI mode)",
@@ -228,24 +227,7 @@ func (a *Agent) scannerNamesList() []string {
 	return names
 }
 
-// remapScannerNames updates the internal scanner registry using backend-resolved names.
-// For example, if a tenant agent registers "semgrep" but backend creates "custom_semgrep",
-// the registry key is updated so job dispatch works correctly.
-func (a *Agent) remapScannerNames(scanners []auth.RegisteredScannerInfo) {
-	for _, info := range scanners {
-		if info.RequestName != info.Name {
-			if s, ok := a.scanners[info.RequestName]; ok {
-				delete(a.scanners, info.RequestName)
-				a.scanners[info.Name] = s
-				a.config.logger.Info("scanner name remapped",
-					"from", info.RequestName,
-					"to", info.Name,
-					"system", info.System,
-				)
-			}
-		}
-	}
-}
+
 
 func (a *Agent) buildRegistrationRequest() auth.RegistrationRequest {
 	return auth.RegistrationRequest{
@@ -357,7 +339,6 @@ func (a *Agent) registerAndInitPool(ctx context.Context) error {
 	}
 
 	if regResp != nil && len(regResp.Scanners) > 0 {
-		a.remapScannerNames(regResp.Scanners)
 		a.updateScannerMetadata(ctx, regResp.Scanners, regResp.System)
 	}
 
@@ -432,16 +413,7 @@ func (a *Agent) createScannerAgent(
 		return nil, err
 	}
 
-	// Remap scanner name if backend resolved differently
 	scannerInfo := resp.Scanner
-	if scannerInfo.RequestName != "" && scannerInfo.RequestName != scannerInfo.Name {
-		a.config.logger.Info("scanner name remapped",
-			"from", scannerInfo.RequestName,
-			"to", scannerInfo.Name,
-		)
-	}
-
-	// Update scanner metadata
 	a.updateScannerMetadata(ctx, []auth.RegisteredScannerInfo{scannerInfo}, scannerInfo.System)
 
 	sa, err := newScannerAgent(a, s, resp, genReq, a.config, a.client)
@@ -994,9 +966,9 @@ func (a *Agent) runCI(ctx context.Context) error {
 		"ref_type", string(ci.Ref.Type),
 	)
 
-	// Find scanners with TargetTypeRepository (use registry keys which may be remapped)
+	// Find scanners with TargetTypeRepository
 	type repoScanner struct {
-		name    string // registry key (remapped name, e.g., "custom_semgrep")
+		name    string // registry key
 		scanner Scanner
 	}
 	var repoScanners []repoScanner

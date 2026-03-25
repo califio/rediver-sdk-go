@@ -210,7 +210,7 @@ func newCIJob(jobID string, ci *CIContext, scannerName string, params map[string
 		refType = "PR_MR"
 	}
 	detail.Target = &api.JobTarget{
-		Repository: &api.RepositoryContext{
+		Repository: &api.RepositoryJobContext{
 			Url:           &ci.Repo.URL,
 			Branch:        &ci.Ref.Branch,
 			Event:         &refType,

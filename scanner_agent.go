@@ -19,7 +19,7 @@ import (
 // Each registered scanner gets its own scannerAgent with independent state.
 type scannerAgent struct {
 	scanner     Scanner
-	scannerName string // resolved name (post-remap)
+	scannerName string // scanner name in DB
 	agentID     string
 	config      *agentConfig
 	token       atomic.Value // stores string (agent token)
