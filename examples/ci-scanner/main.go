@@ -37,7 +37,7 @@ import (
 func main() {
 	godotenv.Load()
 
-	agent, err := rediver.NewAgent(
+	runner, err := rediver.NewRunner(
 		os.Getenv("REDIVER_URL"),
 		os.Getenv("REDIVER_TOKEN"),
 		rediver.WithCIMode(),
@@ -46,7 +46,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := agent.Register(
+	if err := runner.Add(
 		rediver.NewScanner("semgrep",
 			[]rediver.TargetType{rediver.TargetTypeRepository},
 			semgrepHandler,
@@ -57,7 +57,7 @@ func main() {
 	}
 
 	// CI: detect env → create job → scan local repo → report → revoke token → exit
-	if err := agent.RunAsCI(context.Background()); err != nil {
+	if err := runner.RunCI(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("CI scan complete")

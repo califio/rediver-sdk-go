@@ -1,4 +1,4 @@
-// Example subdomain scanner demonstrating the Rediver SDK Agent API.
+// Example subdomain scanner demonstrating the Rediver SDK Runner API.
 package main
 
 import (
@@ -39,18 +39,18 @@ func main() {
 		),
 	)
 
-	// Create agent (task mode: single job then exit)
-	agent, err := rediver.NewAgent(
+	// Create runner (worker mode: polls for jobs continuously until interrupted)
+	runner, err := rediver.NewRunner(
 		os.Getenv("REDIVER_URL"),
 		os.Getenv("REDIVER_TOKEN"),
 		rediver.WithWorkerMode(),
 		rediver.WithAgentIDPath("/tmp/rediver-subdomain"),
 	)
 	if err != nil {
-		log.Fatalf("create agent: %v", err)
+		log.Fatalf("create runner: %v", err)
 	}
 
-	if err := agent.Register(scanner); err != nil {
+	if err := runner.Add(scanner); err != nil {
 		log.Fatalf("register: %v", err)
 	}
 
@@ -58,8 +58,8 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	// Run agent
-	if err := agent.Run(ctx); err != nil {
+	// Run runner
+	if err := runner.Run(ctx); err != nil {
 		log.Fatalf("run: %v", err)
 	}
 

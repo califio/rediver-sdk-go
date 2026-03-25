@@ -1,4 +1,5 @@
 // Example service probe scanner demonstrating service discovery with the Rediver SDK.
+// Runs in worker mode: polls for jobs continuously until interrupted.
 package main
 
 import (
@@ -44,24 +45,24 @@ func main() {
 		),
 	)
 
-	agent, err := rediver.NewAgent(
+	runner, err := rediver.NewRunner(
 		os.Getenv("REDIVER_URL"),
 		os.Getenv("REDIVER_TOKEN"),
 		rediver.WithWorkerMode(),
 		rediver.WithAgentIDPath("/tmp/rediver-serviceprobe"),
 	)
 	if err != nil {
-		log.Fatalf("create agent: %v", err)
+		log.Fatalf("create runner: %v", err)
 	}
 
-	if err := agent.Register(scanner); err != nil {
+	if err := runner.Add(scanner); err != nil {
 		log.Fatalf("register: %v", err)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	if err := agent.Run(ctx); err != nil {
+	if err := runner.Run(ctx); err != nil {
 		log.Fatalf("run: %v", err)
 	}
 

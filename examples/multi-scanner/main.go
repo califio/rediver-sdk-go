@@ -1,4 +1,4 @@
-// Example multi-scanner agent demonstrating daemon mode with multiple scanners.
+// Example multi-scanner runner demonstrating worker mode with multiple scanners.
 package main
 
 import (
@@ -16,7 +16,7 @@ import (
 func main() {
 	godotenv.Load()
 
-	agent, err := rediver.NewAgent(
+	runner, err := rediver.NewRunner(
 		os.Getenv("REDIVER_URL"),
 		os.Getenv("REDIVER_TOKEN"),
 		rediver.WithWorkerMode(),
@@ -27,7 +27,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := agent.Register(
+	if err := runner.Add(
 		rediver.NewScanner("subfinder",
 			[]rediver.TargetType{rediver.TargetTypeDomain, rediver.TargetTypeRootDomain},
 			subfinderHandler,
@@ -51,7 +51,7 @@ func main() {
 		syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := agent.RunAsWorker(ctx); err != nil {
+	if err := runner.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -1,4 +1,7 @@
-// Example direct job execution demonstrating WithJobID for orchestrated workflows.
+// Example direct job execution demonstrating RunOnce for orchestrated single-shot workflows.
+// The runner polls once for a pending job, executes it, revokes the token, and exits.
+// Set REDIVER_JOB_ID in the environment if you need the server to assign a specific job;
+// otherwise the server assigns the next available job for the registered scanner.
 package main
 
 import (
@@ -14,29 +17,23 @@ import (
 func main() {
 	godotenv.Load()
 
-	jobID := os.Getenv("REDIVER_JOB_ID")
-	if jobID == "" {
-		log.Fatal("REDIVER_JOB_ID required")
-	}
-
-	agent, err := rediver.NewAgent(
+	runner, err := rediver.NewRunner(
 		os.Getenv("REDIVER_URL"),
 		os.Getenv("REDIVER_TOKEN"),
-		rediver.WithTaskMode(),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := agent.Register(rediver.NewScanner("nuclei",
+	if err := runner.Add(rediver.NewScanner("nuclei",
 		[]rediver.TargetType{rediver.TargetTypeService},
 		nucleiHandler,
 	)); err != nil {
 		log.Fatal(err)
 	}
 
-	// Direct job: skip pull, fetch detail, validate capability, execute, revoke
-	if err := agent.Run(context.Background(), rediver.WithJobID(jobID)); err != nil {
+	// RunOnce: poll once -> execute -> revoke token -> exit
+	if err := runner.RunOnce(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("direct job complete, token revoked")
