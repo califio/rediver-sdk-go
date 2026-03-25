@@ -34,8 +34,6 @@ type runnerConfig struct {
 	pollInterval    time.Duration
 	version         string
 	hostname        string
-	agentID         string // deprecated: no-op, kept for backward compat
-	agentIDPath     string // deprecated: no-op, kept for backward compat
 	shutdownTimeout time.Duration
 	repoDir         string // override repository directory for CI mode
 	jobHandler      JobHandler
@@ -113,22 +111,6 @@ func WithPollInterval(d time.Duration) Option {
 		if d >= 1*time.Second {
 			c.pollInterval = d
 		}
-	}
-}
-
-// WithAgentID is a no-op kept for backward compatibility.
-// Deprecated: Per-scanner agents use generate-token which assigns agent IDs server-side.
-func WithAgentID(id string) Option {
-	return func(c *runnerConfig) {
-		c.agentID = id
-	}
-}
-
-// WithAgentIDPath is a no-op kept for backward compatibility.
-// Deprecated: Per-scanner agents no longer persist agent IDs to disk.
-func WithAgentIDPath(path string) Option {
-	return func(c *runnerConfig) {
-		c.agentIDPath = path
 	}
 }
 

@@ -36,9 +36,8 @@ var (
 	// ErrInvalidConfig indicates the configuration is invalid.
 	ErrInvalidConfig = errors.New("rediver: invalid configuration")
 
-	// ErrReregistered indicates the agent was re-registered due to token expiry.
-	// This is informational — the operation was retried successfully.
-	ErrReregistered = errors.New("rediver: re-registered with cluster token")
+	// ErrClusterRevoked indicates the cluster token was revoked (HTTP 4xx during refresh).
+	ErrClusterRevoked = errors.New("rediver: cluster token revoked")
 )
 
 // JobError wraps an error with job context.

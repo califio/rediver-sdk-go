@@ -24,10 +24,6 @@ const (
 	agentMaxBatchSize      = 500
 )
 
-// ErrClusterRevoked is returned when the cluster token has been revoked (HTTP 4xx on refresh).
-// This is a fatal error — all agents should stop.
-var ErrClusterRevoked = errors.New("rediver: cluster token revoked")
-
 // agent is the internal per-scanner agent (unexported).
 // It manages token generation, heartbeat, polling, and job execution for one scanner.
 type agent struct {

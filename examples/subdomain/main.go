@@ -44,7 +44,6 @@ func main() {
 		os.Getenv("REDIVER_URL"),
 		os.Getenv("REDIVER_TOKEN"),
 		rediver.WithWorkerMode(),
-		rediver.WithAgentIDPath("/tmp/rediver-subdomain"),
 	)
 	if err != nil {
 		log.Fatalf("create runner: %v", err)

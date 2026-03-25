@@ -96,21 +96,7 @@ func TestWithPollInterval(t *testing.T) {
 	}
 }
 
-func TestWithAgentID(t *testing.T) {
-	cfg := defaultAgentConfig()
-	WithAgentID("my-agent")(cfg)
-	if cfg.agentID != "my-agent" {
-		t.Errorf("got %q, want my-agent", cfg.agentID)
-	}
-}
 
-func TestWithAgentIDPath(t *testing.T) {
-	cfg := defaultAgentConfig()
-	WithAgentIDPath("/tmp/agent-id")(cfg)
-	if cfg.agentIDPath != "/tmp/agent-id" {
-		t.Errorf("got %q, want /tmp/agent-id", cfg.agentIDPath)
-	}
-}
 
 func TestWithVersion(t *testing.T) {
 	cfg := defaultAgentConfig()

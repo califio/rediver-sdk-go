@@ -12,7 +12,7 @@ func TestSentinelErrors_Identity(t *testing.T) {
 	sentinels := []error{
 		ErrJobNotFound, ErrJobCancelled, ErrInvalidJob, ErrNoJobAvailable,
 		ErrConnectionLost, ErrAuthFailed, ErrRateLimited, ErrMaxRetries,
-		ErrInvalidConfig, ErrReregistered,
+		ErrInvalidConfig, ErrClusterRevoked,
 	}
 	for _, err := range sentinels {
 		if !errors.Is(err, err) {

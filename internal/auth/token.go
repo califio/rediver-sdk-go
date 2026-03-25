@@ -133,34 +133,6 @@ func (tm *TokenManager) GenerateToken(ctx context.Context) error {
 	return nil
 }
 
-// Reregister is an alias for GenerateToken for backward compatibility.
-// oldToken parameter is kept for API compatibility but ignored (single-flight via mutex).
-// Deprecated: Use GenerateToken instead.
-func (tm *TokenManager) Reregister(ctx context.Context, oldToken string) error {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	// Check if token already changed (another goroutine refreshed first)
-	currentToken := tm.agentToken.Load().(string)
-	if currentToken != oldToken {
-		return nil // already refreshed
-	}
-
-	if tm.generateFn == nil {
-		return fmt.Errorf("generate-token function not set")
-	}
-
-	resp, err := tm.generateFn(ctx, tm.genReq)
-	if err != nil {
-		return fmt.Errorf("re-generate token: %w", err)
-	}
-
-	tm.agentToken.Store(resp.Token)
-	tm.agentID = resp.AgentID
-	tm.clusterInfo = resp.ClusterInfo
-	return nil
-}
-
 // SetToken stores an agent token directly (used after generate-token).
 func (tm *TokenManager) SetToken(token string) {
 	tm.agentToken.Store(token)
