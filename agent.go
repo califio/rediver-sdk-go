@@ -248,15 +248,6 @@ func (a *Agent) firstRepoScannerName() string {
 	return ""
 }
 
-// scannerNamesList returns scanner names for logging.
-func (a *Agent) scannerNamesList() []string {
-	names := make([]string, 0, len(a.scanners))
-	for name := range a.scanners {
-		names = append(names, name)
-	}
-	return names
-}
-
 // updateScannerMetadata calls PATCH /api/agent/scanner for each scanner the agent "owns".
 // System agents update system scanners; tenant agents update tenant scanners.
 func (a *Agent) updateScannerMetadata(ctx context.Context, registered []auth.RegisteredScannerInfo, isSystem bool) {
@@ -971,18 +962,3 @@ func resolveParamsFromEnv(params []Param, ciParams map[string]interface{}) map[s
 	return resolved
 }
 
-// ListenForJobs is deprecated. Use Runner.Dispatch instead.
-// Removed: new JobHandler signature (func(ctx, PulledJob)) is incompatible.
-func (a *Agent) ListenForJobs(ctx context.Context, handler func(ctx context.Context, jobID string) error) error {
-	if handler == nil {
-		return fmt.Errorf("%w: handler must be non-nil", ErrInvalidConfig)
-	}
-	if len(a.scanners) == 0 {
-		return fmt.Errorf("%w: at least one scanner must be registered", ErrInvalidConfig)
-	}
-	if !a.running.CompareAndSwap(false, true) {
-		return fmt.Errorf("%w: agent already running", ErrInvalidConfig)
-	}
-	defer a.running.Store(false)
-	return fmt.Errorf("%w: ListenForJobs removed — use Runner.Dispatch with new JobHandler signature", ErrInvalidConfig)
-}
