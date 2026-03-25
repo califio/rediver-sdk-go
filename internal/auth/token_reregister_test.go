@@ -6,16 +6,20 @@ import (
 	"testing"
 )
 
-func TestReregister_WorkerMode_CallsRegisterFn(t *testing.T) {
-	tm := NewTokenManager("cluster-tok", RunModeWorker, nil)
+func TestReregister_CallsGenerateFn(t *testing.T) {
+	tm := NewTokenManager("cluster-tok")
 	tm.agentToken.Store("old-token")
-	tm.regReq = RegistrationRequest{Scanners: []string{"subdomain"}}
+	tm.genReq = GenerateTokenRequest{
+		ClusterToken: "cluster-tok",
+		Scanner:      "subdomain",
+		Persistent:   false,
+	}
 
-	registerCalled := false
-	tm.SetRegisterFunc(func(ctx context.Context, req RegistrationRequest) (*RegistrationResponse, error) {
-		registerCalled = true
-		return &RegistrationResponse{
-			Token:   "new-worker-token",
+	called := false
+	tm.SetGenerateTokenFunc(func(ctx context.Context, req GenerateTokenRequest) (*GenerateTokenResponse, error) {
+		called = true
+		return &GenerateTokenResponse{
+			Token:   "new-token",
 			AgentID: "agent-123",
 		}, nil
 	})
@@ -24,10 +28,10 @@ func TestReregister_WorkerMode_CallsRegisterFn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !registerCalled {
-		t.Fatal("registerFn was not called")
+	if !called {
+		t.Fatal("generateFn was not called")
 	}
-	if tm.AgentToken() != "new-worker-token" {
+	if tm.AgentToken() != "new-token" {
 		t.Fatalf("token not updated: got %s", tm.AgentToken())
 	}
 	if tm.AgentID() != "agent-123" {
@@ -35,58 +39,59 @@ func TestReregister_WorkerMode_CallsRegisterFn(t *testing.T) {
 	}
 }
 
-func TestReregister_TaskMode_CallsConnectFn(t *testing.T) {
-	tm := NewTokenManager("cluster-tok", RunModeTask, nil)
+func TestReregister_WorkerMode_CallsGenerateFn(t *testing.T) {
+	// Worker mode scannerAgents use their own refreshToken(), but the agent-level
+	// Reregister (used by pullJob) always calls generateFn regardless of runMode.
+	tm := NewTokenManager("cluster-tok")
 	tm.agentToken.Store("old-token")
+	tm.genReq = GenerateTokenRequest{Scanner: "scanner-a"}
 
-	connectCalled := false
-	tm.SetConnectFunc(func(ctx context.Context, req ConnectRequest) (*ConnectResponse, error) {
-		connectCalled = true
-		return &ConnectResponse{
-			Token:   "new-task-token",
-			AgentID: "cluster-id",
-		}, nil
+	called := false
+	tm.SetGenerateTokenFunc(func(ctx context.Context, req GenerateTokenRequest) (*GenerateTokenResponse, error) {
+		called = true
+		return &GenerateTokenResponse{Token: "new-worker-token", AgentID: "agent-w"}, nil
 	})
 
 	err := tm.Reregister(context.Background(), "old-token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !connectCalled {
-		t.Fatal("connectFn was not called")
+	if !called {
+		t.Fatal("generateFn was not called")
 	}
-	if tm.AgentToken() != "new-task-token" {
+	if tm.AgentToken() != "new-worker-token" {
 		t.Fatalf("token not updated: got %s", tm.AgentToken())
 	}
 }
 
-func TestReregister_CIMode_CallsConnectFn(t *testing.T) {
-	tm := NewTokenManager("cluster-tok", RunModeCI, nil)
+func TestReregister_CIMode_CallsGenerateFn(t *testing.T) {
+	tm := NewTokenManager("cluster-tok")
 	tm.agentToken.Store("old-token")
+	tm.genReq = GenerateTokenRequest{Scanner: "scanner-ci"}
 
-	connectCalled := false
-	tm.SetConnectFunc(func(ctx context.Context, req ConnectRequest) (*ConnectResponse, error) {
-		connectCalled = true
-		return &ConnectResponse{Token: "new-ci-token"}, nil
+	called := false
+	tm.SetGenerateTokenFunc(func(ctx context.Context, req GenerateTokenRequest) (*GenerateTokenResponse, error) {
+		called = true
+		return &GenerateTokenResponse{Token: "new-ci-token"}, nil
 	})
 
 	err := tm.Reregister(context.Background(), "old-token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !connectCalled {
-		t.Fatal("connectFn was not called for CI mode")
+	if !called {
+		t.Fatal("generateFn was not called for CI mode")
 	}
 }
 
 func TestReregister_SkipsIfTokenAlreadyChanged(t *testing.T) {
-	tm := NewTokenManager("cluster-tok", RunModeWorker, nil)
+	tm := NewTokenManager("cluster-tok")
 	tm.agentToken.Store("already-refreshed-token")
 
-	registerCalled := false
-	tm.SetRegisterFunc(func(ctx context.Context, req RegistrationRequest) (*RegistrationResponse, error) {
-		registerCalled = true
-		return &RegistrationResponse{Token: "should-not-reach"}, nil
+	called := false
+	tm.SetGenerateTokenFunc(func(ctx context.Context, req GenerateTokenRequest) (*GenerateTokenResponse, error) {
+		called = true
+		return &GenerateTokenResponse{Token: "should-not-reach"}, nil
 	})
 
 	// Pass stale oldToken — should detect token already changed and skip
@@ -94,66 +99,38 @@ func TestReregister_SkipsIfTokenAlreadyChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if registerCalled {
-		t.Fatal("registerFn should not be called when token already changed")
+	if called {
+		t.Fatal("generateFn should not be called when token already changed")
 	}
 	if tm.AgentToken() != "already-refreshed-token" {
 		t.Fatal("token should remain unchanged")
 	}
 }
 
-func TestReregister_WorkerMode_RegisterFnError(t *testing.T) {
-	tm := NewTokenManager("cluster-tok", RunModeWorker, nil)
+func TestReregister_GenerateFnError(t *testing.T) {
+	tm := NewTokenManager("cluster-tok")
 	tm.agentToken.Store("old-token")
 
-	tm.SetRegisterFunc(func(ctx context.Context, req RegistrationRequest) (*RegistrationResponse, error) {
+	tm.SetGenerateTokenFunc(func(ctx context.Context, req GenerateTokenRequest) (*GenerateTokenResponse, error) {
 		return nil, fmt.Errorf("server unreachable")
 	})
 
 	err := tm.Reregister(context.Background(), "old-token")
 	if err == nil {
-		t.Fatal("expected error when registerFn fails")
+		t.Fatal("expected error when generateFn fails")
 	}
 	if tm.AgentToken() != "old-token" {
 		t.Fatal("token should remain unchanged on error")
 	}
 }
 
-func TestReregister_TaskMode_ConnectFnError(t *testing.T) {
-	tm := NewTokenManager("cluster-tok", RunModeTask, nil)
+func TestReregister_NilGenerateFn(t *testing.T) {
+	tm := NewTokenManager("cluster-tok")
 	tm.agentToken.Store("old-token")
-
-	tm.SetConnectFunc(func(ctx context.Context, req ConnectRequest) (*ConnectResponse, error) {
-		return nil, fmt.Errorf("server unreachable")
-	})
+	// generateFn not set
 
 	err := tm.Reregister(context.Background(), "old-token")
 	if err == nil {
-		t.Fatal("expected error when connectFn fails")
-	}
-	if tm.AgentToken() != "old-token" {
-		t.Fatal("token should remain unchanged on error")
-	}
-}
-
-func TestReregister_WorkerMode_NilRegisterFn(t *testing.T) {
-	tm := NewTokenManager("cluster-tok", RunModeWorker, nil)
-	tm.agentToken.Store("old-token")
-	// registerFn not set
-
-	err := tm.Reregister(context.Background(), "old-token")
-	if err == nil {
-		t.Fatal("expected error when registerFn is nil")
-	}
-}
-
-func TestReregister_TaskMode_NilConnectFn(t *testing.T) {
-	tm := NewTokenManager("cluster-tok", RunModeTask, nil)
-	tm.agentToken.Store("old-token")
-	// connectFn not set
-
-	err := tm.Reregister(context.Background(), "old-token")
-	if err == nil {
-		t.Fatal("expected error when connectFn is nil")
+		t.Fatal("expected error when generateFn is nil")
 	}
 }
