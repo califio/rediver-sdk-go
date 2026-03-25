@@ -563,6 +563,23 @@ type FindingSummary struct {
 // FindingType defines model for FindingType.
 type FindingType string
 
+// GenerateAgentTokenRequest defines model for GenerateAgentTokenRequest.
+type GenerateAgentTokenRequest struct {
+	AgentId      *string `json:"agent_id"`
+	ClusterToken string  `json:"cluster_token"`
+	Hostname     *string `json:"hostname"`
+	IpAddress    *string `json:"ip_address"`
+	Persistent   *bool   `json:"persistent,omitempty"`
+	Scanner      *string `json:"scanner"`
+	Version      *string `json:"version"`
+}
+
+// GenerateAgentTokenResult defines model for GenerateAgentTokenResult.
+type GenerateAgentTokenResult struct {
+	AgentId *string `json:"agent_id,omitempty"`
+	Token   *string `json:"token,omitempty"`
+}
+
 // GetDomainByIpResult defines model for GetDomainByIpResult.
 type GetDomainByIpResult struct {
 	Domains *[]string `json:"domains,omitempty"`
@@ -697,6 +714,12 @@ type JobTarget struct {
 	Subnets    *[]ValueAsset         `json:"subnets,omitempty"`
 }
 
+// PollJobResult defines model for PollJobResult.
+type PollJobResult struct {
+	JobId   *string `json:"job_id"`
+	Scanner *string `json:"scanner"`
+}
+
 // PullUntriagedCredentialLeakResult defines model for PullUntriagedCredentialLeakResult.
 type PullUntriagedCredentialLeakResult struct {
 	ActivityId  *string         `json:"activity_id"`
@@ -784,6 +807,7 @@ type RunState string
 // ScannerInfo defines model for ScannerInfo.
 type ScannerInfo struct {
 	DisplayName  *string                 `json:"display_name,omitempty"`
+	Id           *string                 `json:"id"`
 	Name         *string                 `json:"name,omitempty"`
 	ParamsSchema *map[string]interface{} `json:"params_schema"`
 	RequestName  *string                 `json:"request_name,omitempty"`
@@ -930,6 +954,9 @@ type TriageFindingJSONRequestBody = TriageActivity
 
 // PushFindingsJSONRequestBody defines body for PushFindings for application/json ContentType.
 type PushFindingsJSONRequestBody = PushFindingsRequest
+
+// GenerateAgentTokenJSONRequestBody defines body for GenerateAgentToken for application/json ContentType.
+type GenerateAgentTokenJSONRequestBody = GenerateAgentTokenRequest
 
 // AgentHeartbeatJSONRequestBody defines body for AgentHeartbeat for application/json ContentType.
 type AgentHeartbeatJSONRequestBody = AgentHeartbeatRequest
@@ -1224,8 +1251,16 @@ type ClientInterface interface {
 
 	PushFindings(ctx context.Context, body PushFindingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GenerateAgentTokenWithBody request with any body
+	GenerateAgentTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	GenerateAgentToken(ctx context.Context, body GenerateAgentTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetDnsByIp request
 	GetDnsByIp(ctx context.Context, params *GetDnsByIpParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AgentHeartbeatPing request
+	AgentHeartbeatPing(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AgentHeartbeatWithBody request with any body
 	AgentHeartbeatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1269,6 +1304,9 @@ type ClientInterface interface {
 
 	// GetJobMetrics request
 	GetJobMetrics(ctx context.Context, params *GetJobMetricsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PollJob request
+	PollJob(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RequestJob request
 	RequestJob(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1458,8 +1496,44 @@ func (c *Client) PushFindings(ctx context.Context, body PushFindingsJSONRequestB
 	return c.Client.Do(req)
 }
 
+func (c *Client) GenerateAgentTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGenerateAgentTokenRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GenerateAgentToken(ctx context.Context, body GenerateAgentTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGenerateAgentTokenRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetDnsByIp(ctx context.Context, params *GetDnsByIpParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetDnsByIpRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AgentHeartbeatPing(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAgentHeartbeatPingRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1664,6 +1738,18 @@ func (c *Client) AppendJobLogs(ctx context.Context, body AppendJobLogsJSONReques
 
 func (c *Client) GetJobMetrics(ctx context.Context, params *GetJobMetricsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetJobMetricsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PollJob(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPollJobRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -2160,6 +2246,46 @@ func NewPushFindingsRequestWithBody(server string, contentType string, body io.R
 	return req, nil
 }
 
+// NewGenerateAgentTokenRequest calls the generic GenerateAgentToken builder with application/json body
+func NewGenerateAgentTokenRequest(server string, body GenerateAgentTokenJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewGenerateAgentTokenRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewGenerateAgentTokenRequestWithBody generates requests for GenerateAgentToken with any type of body
+func NewGenerateAgentTokenRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agent/generate-token")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetDnsByIpRequest generates requests for GetDnsByIp
 func NewGetDnsByIpRequest(server string, params *GetDnsByIpParams) (*http.Request, error) {
 	var err error
@@ -2207,6 +2333,33 @@ func NewGetDnsByIpRequest(server string, params *GetDnsByIpParams) (*http.Reques
 		}
 
 		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAgentHeartbeatPingRequest generates requests for AgentHeartbeatPing
+func NewAgentHeartbeatPingRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agent/heartbeat")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -2572,6 +2725,33 @@ func NewGetJobMetricsRequest(server string, params *GetJobMetricsParams) (*http.
 		}
 
 		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPollJobRequest generates requests for PollJob
+func NewPollJobRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/agent/job/poll")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -3129,8 +3309,16 @@ type ClientWithResponsesInterface interface {
 
 	PushFindingsWithResponse(ctx context.Context, body PushFindingsJSONRequestBody, reqEditors ...RequestEditorFn) (*PushFindingsResponse, error)
 
+	// GenerateAgentTokenWithBodyWithResponse request with any body
+	GenerateAgentTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GenerateAgentTokenResponse, error)
+
+	GenerateAgentTokenWithResponse(ctx context.Context, body GenerateAgentTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*GenerateAgentTokenResponse, error)
+
 	// GetDnsByIpWithResponse request
 	GetDnsByIpWithResponse(ctx context.Context, params *GetDnsByIpParams, reqEditors ...RequestEditorFn) (*GetDnsByIpResponse, error)
+
+	// AgentHeartbeatPingWithResponse request
+	AgentHeartbeatPingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AgentHeartbeatPingResponse, error)
 
 	// AgentHeartbeatWithBodyWithResponse request with any body
 	AgentHeartbeatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AgentHeartbeatResponse, error)
@@ -3174,6 +3362,9 @@ type ClientWithResponsesInterface interface {
 
 	// GetJobMetricsWithResponse request
 	GetJobMetricsWithResponse(ctx context.Context, params *GetJobMetricsParams, reqEditors ...RequestEditorFn) (*GetJobMetricsResponse, error)
+
+	// PollJobWithResponse request
+	PollJobWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PollJobResponse, error)
 
 	// RequestJobWithResponse request
 	RequestJobWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*RequestJobResponse, error)
@@ -3364,6 +3555,29 @@ func (r PushFindingsResponse) StatusCode() int {
 	return 0
 }
 
+type GenerateAgentTokenResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON200                   *GenerateAgentTokenResult
+	ApplicationproblemJSON400 *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r GenerateAgentTokenResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GenerateAgentTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetDnsByIpResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3380,6 +3594,27 @@ func (r GetDnsByIpResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetDnsByIpResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type AgentHeartbeatPingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r AgentHeartbeatPingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AgentHeartbeatPingResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -3580,6 +3815,28 @@ func (r GetJobMetricsResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetJobMetricsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PollJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *PollJobResult
+}
+
+// Status returns HTTPResponse.Status
+func (r PollJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PollJobResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -3968,6 +4225,23 @@ func (c *ClientWithResponses) PushFindingsWithResponse(ctx context.Context, body
 	return ParsePushFindingsResponse(rsp)
 }
 
+// GenerateAgentTokenWithBodyWithResponse request with arbitrary body returning *GenerateAgentTokenResponse
+func (c *ClientWithResponses) GenerateAgentTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*GenerateAgentTokenResponse, error) {
+	rsp, err := c.GenerateAgentTokenWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGenerateAgentTokenResponse(rsp)
+}
+
+func (c *ClientWithResponses) GenerateAgentTokenWithResponse(ctx context.Context, body GenerateAgentTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*GenerateAgentTokenResponse, error) {
+	rsp, err := c.GenerateAgentToken(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGenerateAgentTokenResponse(rsp)
+}
+
 // GetDnsByIpWithResponse request returning *GetDnsByIpResponse
 func (c *ClientWithResponses) GetDnsByIpWithResponse(ctx context.Context, params *GetDnsByIpParams, reqEditors ...RequestEditorFn) (*GetDnsByIpResponse, error) {
 	rsp, err := c.GetDnsByIp(ctx, params, reqEditors...)
@@ -3975,6 +4249,15 @@ func (c *ClientWithResponses) GetDnsByIpWithResponse(ctx context.Context, params
 		return nil, err
 	}
 	return ParseGetDnsByIpResponse(rsp)
+}
+
+// AgentHeartbeatPingWithResponse request returning *AgentHeartbeatPingResponse
+func (c *ClientWithResponses) AgentHeartbeatPingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AgentHeartbeatPingResponse, error) {
+	rsp, err := c.AgentHeartbeatPing(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAgentHeartbeatPingResponse(rsp)
 }
 
 // AgentHeartbeatWithBodyWithResponse request with arbitrary body returning *AgentHeartbeatResponse
@@ -4120,6 +4403,15 @@ func (c *ClientWithResponses) GetJobMetricsWithResponse(ctx context.Context, par
 		return nil, err
 	}
 	return ParseGetJobMetricsResponse(rsp)
+}
+
+// PollJobWithResponse request returning *PollJobResponse
+func (c *ClientWithResponses) PollJobWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*PollJobResponse, error) {
+	rsp, err := c.PollJob(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePollJobResponse(rsp)
 }
 
 // RequestJobWithResponse request returning *RequestJobResponse
@@ -4466,6 +4758,39 @@ func ParsePushFindingsResponse(rsp *http.Response) (*PushFindingsResponse, error
 	return response, nil
 }
 
+// ParseGenerateAgentTokenResponse parses an HTTP response from a GenerateAgentTokenWithResponse call
+func ParseGenerateAgentTokenResponse(rsp *http.Response) (*GenerateAgentTokenResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GenerateAgentTokenResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GenerateAgentTokenResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetDnsByIpResponse parses an HTTP response from a GetDnsByIpWithResponse call
 func ParseGetDnsByIpResponse(rsp *http.Response) (*GetDnsByIpResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -4487,6 +4812,22 @@ func ParseGetDnsByIpResponse(rsp *http.Response) (*GetDnsByIpResponse, error) {
 		}
 		response.JSON200 = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseAgentHeartbeatPingResponse parses an HTTP response from a AgentHeartbeatPingWithResponse call
+func ParseAgentHeartbeatPingResponse(rsp *http.Response) (*AgentHeartbeatPingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AgentHeartbeatPingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
 	}
 
 	return response, nil
@@ -4730,6 +5071,32 @@ func ParseGetJobMetricsResponse(rsp *http.Response) (*GetJobMetricsResponse, err
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest JobMetrics
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePollJobResponse parses an HTTP response from a PollJobWithResponse call
+func ParsePollJobResponse(rsp *http.Response) (*PollJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PollJobResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PollJobResult
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
