@@ -111,24 +111,18 @@ func parseGenerateTokenResult(r *api.GenerateAgentTokenResult) *auth.GenerateTok
 	}
 }
 
-// DoHeartbeatPing calls GET /api/agent/heartbeat (expects 204).
-// Accepts a token parameter since per-scanner agents have independent tokens.
-func (c *Client) DoHeartbeatPing(ctx context.Context, token string) error {
-	// Use request editor to override the default TokenManager token with per-scanner token
-	res, err := c.AgentHeartbeatPingWithResponse(ctx, func(ctx context.Context, req *http.Request) error {
-		if token != "" {
-			req.Header.Set("X-Token", token)
-		}
-		return nil
-	})
+// AgentHeartbeat calls GET /api/agent/heartbeat (expects 204).
+// Token is injected automatically by the request editor from TokenManager.
+func (c *Client) AgentHeartbeat(ctx context.Context) error {
+	res, err := c.AgentHeartbeatPingWithResponse(ctx)
 	if err != nil {
-		return fmt.Errorf("heartbeat-ping request: %w", err)
+		return fmt.Errorf("agent heartbeat request: %w", err)
 	}
 	if res.StatusCode() == 401 {
-		return fmt.Errorf("heartbeat-ping: 401 unauthorized")
+		return fmt.Errorf("agent heartbeat: 401 unauthorized")
 	}
 	if res.StatusCode() >= 400 {
-		return fmt.Errorf("heartbeat-ping failed: status %d", res.StatusCode())
+		return fmt.Errorf("agent heartbeat failed: status %d", res.StatusCode())
 	}
 	return nil
 }

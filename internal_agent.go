@@ -284,16 +284,13 @@ func (a *agent) heartbeatLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			token := a.token.Load().(string)
-			if err := a.client.DoHeartbeatPing(ctx, token); err != nil {
+			if err := a.client.AgentHeartbeat(ctx); err != nil {
 				if strings.Contains(err.Error(), "401") {
 					if refreshErr := a.refreshToken(ctx); refreshErr != nil {
 						a.logger.Error("heartbeat token refresh failed", "error", refreshErr)
 						continue
 					}
-					// Retry heartbeat with new token
-					newToken := a.token.Load().(string)
-					if retryErr := a.client.DoHeartbeatPing(ctx, newToken); retryErr != nil {
+					if retryErr := a.client.AgentHeartbeat(ctx); retryErr != nil {
 						a.logger.Warn("heartbeat retry failed", "error", retryErr)
 					}
 				} else {
