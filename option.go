@@ -10,7 +10,6 @@ import (
 	"github.com/califio/rediver-sdk-go/internal/auth"
 )
 
-
 // RunMode determines the agent execution mode.
 type RunMode = auth.RunMode
 
@@ -21,10 +20,12 @@ const (
 	RunModeTask = auth.RunModeTask
 	// RunModeCI detects CI environment, creates a job, scans local repo, and exits.
 	RunModeCI = auth.RunModeCI
+	// RunModeDispatcher polls jobs and forwards them to an external handler.
+	RunModeDispatcher = auth.RunModeDispatcher
 )
 
-// agentConfig holds Agent configuration.
-type agentConfig struct {
+// runnerConfig holds Runner/Agent shared configuration.
+type runnerConfig struct {
 	logger          *slog.Logger
 	httpClient      *http.Client
 	retryPolicy     RetryPolicy
@@ -33,28 +34,32 @@ type agentConfig struct {
 	pollInterval    time.Duration
 	version         string
 	hostname        string
-	agentID         string // force specific agent ID
-	agentIDPath     string // file path for persistence (daemon only)
+	agentID         string // deprecated: no-op, kept for backward compat
+	agentIDPath     string // deprecated: no-op, kept for backward compat
 	shutdownTimeout time.Duration
 	repoDir         string // override repository directory for CI mode
+	jobHandler      JobHandler
 }
 
-func defaultAgentConfig() *agentConfig {
+// agentConfig is a backward-compatible alias for runnerConfig.
+// Deprecated: Use runnerConfig directly.
+type agentConfig = runnerConfig
+
+func defaultAgentConfig() *runnerConfig {
 	hostname, _ := os.Hostname()
-	return &agentConfig{
+	return &runnerConfig{
 		logger:          slog.Default(),
 		httpClient:      &http.Client{Timeout: 30 * time.Second},
 		retryPolicy:     DefaultRetryPolicy(),
 		runMode:         resolveRunMode(),
 		maxConcurrency:  1,
 		pollInterval:    5 * time.Second,
-		agentIDPath:     auth.DefaultAgentIDPath(),
 		shutdownTimeout: 0, // wait forever
 		hostname:        hostname,
 	}
 }
 
-// resolveRunMode checks REDIVER_RUN_MODE env var. Default: daemon.
+// resolveRunMode checks REDIVER_RUN_MODE env var. Default: task.
 func resolveRunMode() RunMode {
 	mode := strings.ToLower(os.Getenv("REDIVER_RUN_MODE"))
 	switch mode {
@@ -69,34 +74,37 @@ func resolveRunMode() RunMode {
 	}
 }
 
-// Option configures an Agent.
-type Option func(*agentConfig)
+// Option configures a Runner or Agent.
+type Option func(*runnerConfig)
 
-// WithWorkerMode sets the agent to worker mode (long-running poll loop).
+// RunnerOption is an alias for Option.
+type RunnerOption = Option
+
+// WithWorkerMode sets the runner to worker mode (long-running poll loop).
 func WithWorkerMode() Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.runMode = RunModeWorker
 	}
 }
 
-// WithTaskMode sets the agent to task mode (single job, revoke token, exit).
+// WithTaskMode sets the runner to task mode (single job, revoke token, exit).
 func WithTaskMode() Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.runMode = RunModeTask
 	}
 }
 
-// WithCIMode sets the agent to CI mode (detect env, create job, scan local repo, exit).
+// WithCIMode sets the runner to CI mode (detect env, create job, scan local repo, exit).
 func WithCIMode() Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.runMode = RunModeCI
 	}
 }
 
-// WithMaxConcurrency sets the maximum number of concurrent jobs.
-// Only applies to daemon mode. Default is 1.
+// WithMaxConcurrency sets the maximum number of concurrent jobs per scanner.
+// Default is 1.
 func WithMaxConcurrency(n int) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		if n > 0 {
 			c.maxConcurrency = n
 		}
@@ -105,48 +113,46 @@ func WithMaxConcurrency(n int) Option {
 
 // WithPollInterval sets the polling interval. Default: 5s, min: 1s.
 func WithPollInterval(d time.Duration) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		if d >= 1*time.Second {
 			c.pollInterval = d
 		}
 	}
 }
 
-// WithAgentID forces a specific agent ID instead of using cached/generated.
+// WithAgentID is a no-op kept for backward compatibility.
 // Deprecated: Per-scanner agents use generate-token which assigns agent IDs server-side.
-// This option is a no-op and will be removed in a future version.
 func WithAgentID(id string) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.agentID = id
 	}
 }
 
-// WithAgentIDPath sets the file path for agent ID persistence (daemon only).
+// WithAgentIDPath is a no-op kept for backward compatibility.
 // Deprecated: Per-scanner agents no longer persist agent IDs to disk.
-// This option is a no-op and will be removed in a future version.
 func WithAgentIDPath(path string) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.agentIDPath = path
 	}
 }
 
-// WithVersion sets the agent version string for registration.
+// WithVersion sets the agent version string for token generation.
 func WithVersion(v string) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.version = v
 	}
 }
 
-// WithHostname sets the hostname for registration.
+// WithHostname sets the hostname sent during token generation.
 func WithHostname(h string) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.hostname = h
 	}
 }
 
-// WithLogger sets a custom slog logger for agent-level logging.
+// WithLogger sets a custom slog logger.
 func WithLogger(logger *slog.Logger) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		if logger != nil {
 			c.logger = logger
 		}
@@ -155,14 +161,14 @@ func WithLogger(logger *slog.Logger) Option {
 
 // WithRetry sets the retry policy.
 func WithRetry(policy RetryPolicy) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.retryPolicy = policy
 	}
 }
 
 // WithHTTPClient sets a custom HTTP client.
 func WithHTTPClient(client *http.Client) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		if client != nil {
 			c.httpClient = client
 		}
@@ -171,7 +177,7 @@ func WithHTTPClient(client *http.Client) Option {
 
 // WithShutdownTimeout sets graceful shutdown timeout. 0 = wait forever (default).
 func WithShutdownTimeout(d time.Duration) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.shutdownTimeout = d
 	}
 }
@@ -187,9 +193,8 @@ func WithRetryAggressive() Option {
 }
 
 // WithRepoDir overrides the repository directory for CI mode scanning.
-// When set, the agent uses this path instead of auto-detected CI workspace or CWD.
 func WithRepoDir(path string) Option {
-	return func(c *agentConfig) {
+	return func(c *runnerConfig) {
 		c.repoDir = path
 	}
 }
@@ -207,7 +212,6 @@ type runConfig struct {
 }
 
 // WithJobID skips job polling and executes the specified job directly.
-// The agent validates it has a capable scanner before execution.
 func WithJobID(id string) RunOption {
 	return func(c *runConfig) {
 		c.jobID = id

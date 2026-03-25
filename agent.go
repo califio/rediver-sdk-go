@@ -18,13 +18,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const (
-	agentHeartbeatInterval = 60 * time.Second
-	jobHeartbeatInterval   = 60 * time.Second
-	agentMaxBatchSize      = 500
-)
-
 // Agent manages the scanner lifecycle with 2-token authentication.
+// Deprecated: Use Runner instead. Agent will be removed in a future major version.
 type Agent struct {
 	serverURL    string
 	clusterToken string
@@ -34,8 +29,8 @@ type Agent struct {
 	scanners     map[string]Scanner // registry: lowercase name -> scanner
 	pool         *worker.Pool
 	retrier      *retrier
-	running      atomic.Bool // set in Run(), checked in Register()
-	drainCtx     context.Context // stays alive during graceful shutdown for running jobs
+	running     atomic.Bool               // set in Run(), checked in Register()
+	genTokenReq auth.GenerateTokenRequest // cached for 401 refresh (Task/CI modes)
 }
 
 // NewAgent creates a new agent instance.
@@ -60,21 +55,10 @@ func NewAgent(serverURL, clusterToken string, opts ...Option) (*Agent, error) {
 		opt(config)
 	}
 
-	// Create Persister (nil for task mode)
-	var persist *auth.Persister
-	if config.runMode == RunModeWorker && config.agentIDPath != "" {
-		persist = auth.NewPersister(config.agentIDPath)
-	}
-
 	// Create TokenManager
-	tm := auth.NewTokenManager(clusterToken, config.runMode, persist)
+	tm := auth.NewTokenManager(clusterToken)
 
-	// Force agent ID if provided
-	if config.agentID != "" {
-		// Will be sent in registration request
-	}
-
-	// Create transport client (wires registerFn into TokenManager)
+	// Create transport client (wires generateTokenFn into TokenManager)
 	client, err := transport.NewClient(serverURL, tm, config.httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("create client: %w", err)
@@ -131,28 +115,39 @@ func (a *Agent) Run(ctx context.Context, runOpts ...RunOption) error {
 		return a.RunAsCI(ctx)
 	}
 
-	// Task mode uses lightweight connect with scanners
+	// Task mode: call generate-token for first scanner, store token for all API calls.
 	if a.config.runMode == RunModeTask {
-		connectReq := auth.ConnectRequest{
-			Scanners: a.scannerNamesList(),
+		scannerName := a.firstScannerName()
+		genReq := auth.GenerateTokenRequest{
+			ClusterToken: a.clusterToken,
+			Scanner:      scannerName,
+			Persistent:   false,
+			Hostname:     a.config.hostname,
+			IPAddress:    utils.GetIPAddress(),
+			Version:      a.config.version,
 		}
-		var connResp *auth.ConnectResponse
+		var resp *auth.GenerateTokenResponse
 		if err := a.retrier.Do(ctx, func() error {
-			var connErr error
-			connResp, connErr = a.tokenManager.Connect(ctx, connectReq)
-			return connErr
+			var genErr error
+			resp, genErr = a.client.DoGenerateToken(ctx, genReq)
+			return genErr
 		}); err != nil {
-			return fmt.Errorf("connect: %w", err)
+			return fmt.Errorf("generate-token: %w", err)
 		}
 
-		// Update scanner metadata if scanners were returned
-		if connResp != nil && len(connResp.Scanners) > 0 {
-			a.updateScannerMetadata(ctx, connResp.Scanners, connResp.System)
+		a.tokenManager.SetToken(resp.Token)
+		a.tokenManager.SetAgentID(resp.AgentID)
+		a.tokenManager.SetClusterInfo(resp.ClusterInfo)
+		a.tokenManager.SetGenReq(genReq)
+		a.genTokenReq = genReq
+
+		if resp.Scanner.Name != "" {
+			a.updateScannerMetadata(ctx, []auth.RegisteredScannerInfo{resp.Scanner}, resp.Scanner.System)
 		}
 
 		a.config.logger.Info("connected to server (task mode)",
-			"agent_id", a.tokenManager.AgentID(),
-			"scanners", a.scannerNamesList(),
+			"agent_id", resp.AgentID,
+			"scanner", scannerName,
 		)
 
 		a.pool = worker.NewPool(a.config.maxConcurrency, a.config.maxConcurrency*2)
@@ -189,33 +184,68 @@ func (a *Agent) RunAsCI(ctx context.Context) error {
 		return fmt.Errorf("%w: at least one scanner must be registered", ErrInvalidConfig)
 	}
 
-	// Lightweight connect: exchange cluster token for agent token
-	connectReq := auth.ConnectRequest{
-		Scanners: a.scannerNamesList(),
-	}
-	var connResp *auth.ConnectResponse
-	if err := a.retrier.Do(ctx, func() error {
-		var connErr error
-		connResp, connErr = a.tokenManager.Connect(ctx, connectReq)
-		return connErr
-	}); err != nil {
-		return fmt.Errorf("connect: %w", err)
+	// CI mode: generate token for first repo-supporting scanner.
+	scannerName := a.firstRepoScannerName()
+	if scannerName == "" {
+		return fmt.Errorf("%w: no registered scanners support TargetTypeRepository", ErrInvalidConfig)
 	}
 
-	// Update scanner metadata if scanners were returned
-	if connResp != nil && len(connResp.Scanners) > 0 {
-		a.updateScannerMetadata(ctx, connResp.Scanners, connResp.System)
+	genReq := auth.GenerateTokenRequest{
+		ClusterToken: a.clusterToken,
+		Scanner:      scannerName,
+		Persistent:   false,
+		Hostname:     a.config.hostname,
+		IPAddress:    utils.GetIPAddress(),
+		Version:      a.config.version,
 	}
+	var resp *auth.GenerateTokenResponse
+	if err := a.retrier.Do(ctx, func() error {
+		var genErr error
+		resp, genErr = a.client.DoGenerateToken(ctx, genReq)
+		return genErr
+	}); err != nil {
+		return fmt.Errorf("generate-token: %w", err)
+	}
+
+	a.tokenManager.SetToken(resp.Token)
+	a.tokenManager.SetAgentID(resp.AgentID)
+	a.tokenManager.SetClusterInfo(resp.ClusterInfo)
+	a.tokenManager.SetGenReq(genReq)
+	a.genTokenReq = genReq
+
+	a.updateScannerMetadata(ctx, []auth.RegisteredScannerInfo{resp.Scanner}, resp.Scanner.System)
 
 	a.config.logger.Info("connected to server (CI mode)",
-		"agent_id", a.tokenManager.AgentID(),
-		"scanners", a.scannerNamesList(),
+		"agent_id", resp.AgentID,
+		"scanner", scannerName,
 	)
 
 	// Create worker pool
 	a.pool = worker.NewPool(a.config.maxConcurrency, a.config.maxConcurrency*2)
 
 	return a.runCI(ctx)
+}
+
+// firstScannerName returns the name of any registered scanner (arbitrary order).
+// Used by Task mode which only needs one scanner for token generation.
+func (a *Agent) firstScannerName() string {
+	for name := range a.scanners {
+		return name
+	}
+	return ""
+}
+
+// firstRepoScannerName returns the first scanner that supports TargetTypeRepository.
+// Used by CI mode which only runs repo-targeting scanners.
+func (a *Agent) firstRepoScannerName() string {
+	for name, s := range a.scanners {
+		for _, t := range s.AssetTypes() {
+			if t == TargetTypeRepository {
+				return name
+			}
+		}
+	}
+	return ""
 }
 
 // scannerNamesList returns scanner names for logging.
@@ -225,19 +255,6 @@ func (a *Agent) scannerNamesList() []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-
-
-func (a *Agent) buildRegistrationRequest() auth.RegistrationRequest {
-	return auth.RegistrationRequest{
-		Scanners:   a.scannerNamesList(),
-		AgentID:    a.config.agentID,
-		Hostname:   a.config.hostname,
-		IPAddress:  utils.GetIPAddress(),
-		Version:    a.config.version,
-		SdkVersion: SdkVersion,
-	}
 }
 
 // updateScannerMetadata calls PATCH /api/agent/scanner for each scanner the agent "owns".
@@ -324,34 +341,6 @@ func (a *Agent) buildScannerUpdate(s Scanner, info auth.RegisteredScannerInfo) *
 	return &req
 }
 
-// registerAndInitPool performs Worker mode registration and creates the worker pool.
-// Used by both Run() (daemon mode) and ListenForJobs().
-func (a *Agent) registerAndInitPool(ctx context.Context) error {
-	regReq := a.buildRegistrationRequest()
-
-	var regResp *auth.RegistrationResponse
-	if err := a.retrier.Do(ctx, func() error {
-		var regErr error
-		regResp, regErr = a.tokenManager.Register(ctx, regReq)
-		return regErr
-	}); err != nil {
-		return fmt.Errorf("register: %w", err)
-	}
-
-	if regResp != nil && len(regResp.Scanners) > 0 {
-		a.updateScannerMetadata(ctx, regResp.Scanners, regResp.System)
-	}
-
-	a.config.logger.Info("registered with server",
-		"agent_id", a.tokenManager.AgentID(),
-		"scanners", a.scannerNamesList(),
-		"mode", a.config.runMode.String(),
-	)
-
-	a.pool = worker.NewPool(a.config.maxConcurrency, a.config.maxConcurrency*2)
-	return nil
-}
-
 // --- Per-scanner agent mode (Worker) ---
 
 // runWithScannerAgents creates independent scannerAgents via generate-token and runs them.
@@ -413,70 +402,18 @@ func (a *Agent) createScannerAgent(
 		return nil, err
 	}
 
-	scannerInfo := resp.Scanner
-	a.updateScannerMetadata(ctx, []auth.RegisteredScannerInfo{scannerInfo}, scannerInfo.System)
-
 	sa, err := newScannerAgent(a, s, resp, genReq, a.config, a.client)
 	if err != nil {
 		return nil, err
 	}
 
 	a.config.logger.Info("scanner-agent created",
-		"scanner", scannerInfo.Name,
+		"scanner", name,
 		"agent_id", resp.AgentID,
 		"persistent", persistent,
 	)
 
 	return sa, nil
-}
-
-// --- Daemon mode (legacy — used by registerAndInitPool path) ---
-
-func (a *Agent) runDaemon(ctx context.Context) error {
-	// drainCtx stays alive during graceful shutdown so running jobs
-	// can continue sending heartbeats and reporting results.
-	// Only cancelled after all jobs complete or shutdown timeout.
-	drainCtx, cancelDrain := context.WithCancel(context.Background())
-	defer cancelDrain()
-
-	// Agent heartbeat uses drainCtx — continues during drain
-	go a.agentHeartbeatLoop(drainCtx)
-
-	// Poll loop stops on ctx (SIGTERM)
-	a.drainCtx = drainCtx
-	go a.pollLoop(ctx)
-
-	// Wait for shutdown signal
-	<-ctx.Done()
-	a.config.logger.Info("shutting down...")
-
-	// Graceful: wait for running jobs to complete
-	done := make(chan struct{})
-	go func() {
-		a.pool.Shutdown()
-		close(done)
-	}()
-
-	if a.config.shutdownTimeout > 0 {
-		select {
-		case <-done:
-			a.config.logger.Info("all jobs completed")
-		case <-time.After(a.config.shutdownTimeout):
-			a.config.logger.Warn("shutdown timeout, forcing exit")
-			// Cancel drainCtx first so running jobs see context cancellation,
-			// then ShutdownNow waits for them to return.
-			cancelDrain()
-			a.pool.ShutdownNow()
-		}
-	} else {
-		// Wait forever (default)
-		<-done
-		a.config.logger.Info("all jobs completed")
-	}
-
-	// All jobs finished (or forced) — stop agent heartbeat
-	cancelDrain()
-	return nil
 }
 
 // --- Task mode ---
@@ -507,48 +444,6 @@ func (a *Agent) runTask(ctx context.Context, cfg *runConfig) error {
 	// Always revoke token in task mode
 	_ = a.tokenManager.RevokeToken(ctx)
 	return execErr
-}
-
-// --- Poll loop (daemon) ---
-
-func (a *Agent) pollLoop(ctx context.Context) {
-	ticker := time.NewTicker(a.config.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			a.pollAndDispatch(ctx)
-		}
-	}
-}
-
-func (a *Agent) pollAndDispatch(ctx context.Context) {
-	if a.pool.ActiveWorkers() >= a.config.maxConcurrency {
-		return // at capacity
-	}
-
-	jobID, err := a.pullJob(ctx)
-	if err != nil {
-		if !errors.Is(err, ErrNoJobAvailable) {
-			a.config.logger.Error("pull job failed", "error", err)
-		}
-		return
-	}
-
-	// Submit to worker pool with drainCtx so running jobs
-	// keep heartbeating during graceful shutdown.
-	err = a.pool.Submit(&agentJob{
-		agent: a,
-		ctx:   a.drainCtx,
-		jobID: jobID,
-	})
-	if err != nil {
-		a.config.logger.Error("submit job failed", "job_id", jobID, "error", err)
-		a.reportJobFailed(ctx, jobID, "worker pool full")
-	}
 }
 
 // --- Job pull ---
@@ -725,34 +620,6 @@ func (a *Agent) reportJobFailed(ctx context.Context, jobID string, description s
 
 // --- Heartbeats ---
 
-func (a *Agent) agentHeartbeatLoop(ctx context.Context) {
-	ticker := time.NewTicker(agentHeartbeatInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			a.sendAgentHeartbeat(ctx)
-		}
-	}
-}
-
-func (a *Agent) sendAgentHeartbeat(ctx context.Context) {
-	currentJobs := int32(0)
-	if a.pool != nil {
-		currentJobs = int32(a.pool.ActiveWorkers())
-	}
-	body := api.AgentHeartbeatRequest{
-		CurrentJobs: &currentJobs,
-	}
-	_, err := a.client.AgentHeartbeatWithResponse(ctx, body)
-	if err != nil {
-		a.config.logger.Warn("agent heartbeat failed", "error", err)
-	}
-}
-
 func (a *Agent) jobHeartbeatLoop(ctx context.Context, jobID string) {
 	ticker := time.NewTicker(jobHeartbeatInterval)
 	defer ticker.Stop()
@@ -894,30 +761,6 @@ func (a *Agent) importSASTFindings(ctx context.Context, jobID string, findings [
 	if err != nil {
 		a.config.logger.Error("import SAST findings failed", "job_id", jobID, "error", err)
 	}
-}
-
-// --- Worker pool job wrapper ---
-
-type agentJob struct {
-	agent *Agent
-	ctx   context.Context
-	jobID string
-}
-
-func (j *agentJob) Execute(ctx context.Context) error {
-	return j.agent.executeJob(j.ctx, j.jobID)
-}
-
-func (j *agentJob) OnEnqueue() {
-	j.agent.config.logger.Debug("job enqueued", "job_id", j.jobID)
-}
-
-func (j *agentJob) OnError(err error) {
-	j.agent.config.logger.Error("job failed", "job_id", j.jobID, "error", err)
-}
-
-func (j *agentJob) OnCompleted() {
-	j.agent.config.logger.Debug("job completed", "job_id", j.jobID)
 }
 
 // --- Helpers ---
@@ -1126,4 +969,20 @@ func resolveParamsFromEnv(params []Param, ciParams map[string]interface{}) map[s
 		}
 	}
 	return resolved
+}
+
+// ListenForJobs is deprecated. Use Runner.Dispatch instead.
+// Removed: new JobHandler signature (func(ctx, PulledJob)) is incompatible.
+func (a *Agent) ListenForJobs(ctx context.Context, handler func(ctx context.Context, jobID string) error) error {
+	if handler == nil {
+		return fmt.Errorf("%w: handler must be non-nil", ErrInvalidConfig)
+	}
+	if len(a.scanners) == 0 {
+		return fmt.Errorf("%w: at least one scanner must be registered", ErrInvalidConfig)
+	}
+	if !a.running.CompareAndSwap(false, true) {
+		return fmt.Errorf("%w: agent already running", ErrInvalidConfig)
+	}
+	defer a.running.Store(false)
+	return fmt.Errorf("%w: ListenForJobs removed — use Runner.Dispatch with new JobHandler signature", ErrInvalidConfig)
 }

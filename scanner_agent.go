@@ -54,10 +54,12 @@ func newScannerAgent(
 	config *agentConfig,
 	parentClient *transport.Client,
 ) (*scannerAgent, error) {
+	// Use request scanner name — always available regardless of backend response
+	scannerName := genReq.Scanner
 	sa := &scannerAgent{
 		parentAgent: parent,
 		scanner:     s,
-		scannerName: resp.Scanner.Name,
+		scannerName: scannerName,
 		agentID:     resp.AgentID,
 		config:      config,
 		clusterInfo: resp.ClusterInfo,
@@ -65,7 +67,7 @@ func newScannerAgent(
 		genReq:      genReq,
 		retrier:     newRetrier(config.retryPolicy),
 		logger: config.logger.With(
-			"scanner", resp.Scanner.Name,
+			"scanner", scannerName,
 			"agent_id", resp.AgentID,
 		),
 	}
@@ -73,7 +75,7 @@ func newScannerAgent(
 
 	// Create per-scanner transport client with own token.
 	// TokenManager's agentToken is read by the request editor for X-Token header.
-	tm := auth.NewTokenManager(genReq.ClusterToken, config.runMode, nil)
+	tm := auth.NewTokenManager(genReq.ClusterToken)
 	tm.SetToken(resp.Token)
 	client, err := transport.NewClient(parentClient.BaseURL(), tm, config.httpClient)
 	if err != nil {
@@ -296,7 +298,7 @@ type scannerAgentDispatchJob struct {
 }
 
 func (j *scannerAgentDispatchJob) Execute(_ context.Context) error {
-	err := j.handler(j.ctx, j.jobID)
+	err := j.handler(j.ctx, PulledJob{JobID: j.jobID, Scanner: j.sa.scannerName})
 	if err != nil && j.ctx.Err() == nil {
 		j.sa.reportJobFailed(j.ctx, j.jobID, err.Error())
 	}
