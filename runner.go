@@ -3,6 +3,7 @@ package rediver
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -230,4 +231,20 @@ func (r *Runner) createAgents(ctx context.Context, persistent bool) ([]*agent, e
 		agents = append(agents, a)
 	}
 	return agents, nil
+}
+
+// --- Env helpers ---
+
+func resolveClusterToken(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	return strings.TrimSpace(os.Getenv("REDIVER_TOKEN"))
+}
+
+func resolveServerURL(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	return strings.TrimSpace(os.Getenv("REDIVER_URL"))
 }

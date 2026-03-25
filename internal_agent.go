@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -773,5 +774,28 @@ func (j *agentPoolJob) OnError(err error) {
 
 func (j *agentPoolJob) OnCompleted() {
 	j.a.logger.Debug("job completed", "job_id", j.jobID)
+}
+
+// resolveParamsFromEnv resolves scanner parameters from env vars, CI context, and defaults.
+func resolveParamsFromEnv(params []Param, ciParams map[string]interface{}) map[string]interface{} {
+	resolved := make(map[string]interface{})
+	for _, p := range params {
+		if p.envVar != "" {
+			if val, ok := os.LookupEnv(p.envVar); ok {
+				resolved[p.name] = val
+				continue
+			}
+		}
+		if ciParams != nil {
+			if val, ok := ciParams[p.name]; ok {
+				resolved[p.name] = val
+				continue
+			}
+		}
+		if p.defaultVal != nil {
+			resolved[p.name] = p.defaultVal
+		}
+	}
+	return resolved
 }
 

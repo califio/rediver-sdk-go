@@ -41,10 +41,6 @@ type runnerConfig struct {
 	jobHandler      JobHandler
 }
 
-// agentConfig is a backward-compatible alias for runnerConfig.
-// Deprecated: Use runnerConfig directly.
-type agentConfig = runnerConfig
-
 func defaultAgentConfig() *runnerConfig {
 	hostname, _ := os.Hostname()
 	return &runnerConfig{
