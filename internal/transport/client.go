@@ -1,16 +1,20 @@
-// Package transport provides HTTP client utilities with 401 retry support.
+// Package transport provides HTTP client utilities with automatic 401 token refresh.
 package transport
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"sync"
 
 	"github.com/califio/rediver-sdk-go/internal/api"
 	"github.com/califio/rediver-sdk-go/internal/auth"
 )
 
-// Client wraps the generated API client with TokenManager integration and 401 retry.
+// Client wraps the generated API client with TokenManager integration.
+// 401 retry is handled transparently at the HTTP transport layer.
 type Client struct {
 	*api.ClientWithResponses
 	tokenManager *auth.TokenManager
@@ -18,30 +22,33 @@ type Client struct {
 	baseURL      string
 }
 
-// NewClient creates a new transport client wired to TokenManager.
-// It also wires the revokeFn and generateTokenFn callbacks into TokenManager.
+// NewClient creates a transport client with automatic token injection and 401 refresh.
 func NewClient(baseURL string, tm *auth.TokenManager, httpClient *http.Client) (*Client, error) {
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = &http.Client{}
+	}
+
+	// Wrap the HTTP client's transport with auth retry middleware
+	base := httpClient.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	authClient := &http.Client{
+		Timeout: httpClient.Timeout,
+		Transport: &authRetryTransport{
+			base:         base,
+			tokenManager: tm,
+		},
 	}
 
 	c := &Client{
 		tokenManager: tm,
-		httpClient:   httpClient,
+		httpClient:   authClient,
 		baseURL:      baseURL,
 	}
 
-	// Create API client with agent token injection
-	apiClient, err := api.NewClientWithResponses(baseURL,
-		api.WithHTTPClient(httpClient),
-		api.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
-			token := tm.AgentToken()
-			if token != "" {
-				req.Header.Set("X-Token", token)
-			}
-			return nil
-		}),
-	)
+	// Create API client — token injection handled by authRetryTransport
+	apiClient, err := api.NewClientWithResponses(baseURL, api.WithHTTPClient(authClient))
 	if err != nil {
 		return nil, fmt.Errorf("create api client: %w", err)
 	}
@@ -55,6 +62,62 @@ func NewClient(baseURL string, tm *auth.TokenManager, httpClient *http.Client) (
 
 	return c, nil
 }
+
+// authRetryTransport injects X-Token header and retries once on 401 after refreshing.
+type authRetryTransport struct {
+	base         http.RoundTripper
+	tokenManager *auth.TokenManager
+	mu           sync.Mutex // single-flight token refresh
+}
+
+func (t *authRetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Buffer body for potential retry (most SDK requests are small JSON)
+	var bodyBytes []byte
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read request body: %w", err)
+		}
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	}
+
+	// Inject current token
+	token := t.tokenManager.AgentToken()
+	if token != "" {
+		req.Header.Set("X-Token", token)
+	}
+
+	// First attempt
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Not 401 → return as-is
+	if resp.StatusCode != 401 {
+		return resp, nil
+	}
+
+	// 401 → refresh token and retry once
+	t.mu.Lock()
+	refreshErr := t.tokenManager.GenerateToken(req.Context())
+	t.mu.Unlock()
+	if refreshErr != nil {
+		return resp, nil // return original 401 — caller sees the error
+	}
+
+	// Rebuild request with new token and fresh body
+	resp.Body.Close()
+	if bodyBytes != nil {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	}
+	req.Header.Set("X-Token", t.tokenManager.AgentToken())
+
+	return t.base.RoundTrip(req)
+}
+
+// --- API methods ---
 
 // DoPollJob calls GET /api/agent/job/poll and returns (jobID, scanner, error).
 // Returns ("", "", nil) on 204 No Content (no job available).
@@ -72,17 +135,16 @@ func (c *Client) DoPollJob(ctx context.Context) (string, string, error) {
 	if res.JSON200 == nil || res.JSON200.JobId == nil {
 		return "", "", nil
 	}
-	jobID := derefStr(res.JSON200.JobId)
-	scanner := derefStr(res.JSON200.Scanner)
-	return jobID, scanner, nil
+	return derefStr(res.JSON200.JobId), derefStr(res.JSON200.Scanner), nil
 }
 
 // DoGenerateToken calls POST /api/agent/generate-token for per-scanner token exchange.
+// This method is also used by authRetryTransport for 401 refresh.
 func (c *Client) DoGenerateToken(ctx context.Context, req auth.GenerateTokenRequest) (*auth.GenerateTokenResponse, error) {
 	persistent := req.Persistent
 	apiReq := api.GenerateAgentTokenRequest{
 		ClusterToken: req.ClusterToken,
-		AgentId:      req.AgentId, // nullable *string — set after first token for 401 refresh
+		AgentId:      req.AgentId,
 		Scanner:      strPtr(req.Scanner),
 		Persistent:   &persistent,
 		Hostname:     strPtr(req.Hostname),
@@ -99,27 +161,17 @@ func (c *Client) DoGenerateToken(ctx context.Context, req auth.GenerateTokenRequ
 	if res.JSON200 == nil {
 		return nil, fmt.Errorf("generate-token failed: empty response")
 	}
-	return parseGenerateTokenResult(res.JSON200), nil
-}
-
-// parseGenerateTokenResult converts generated GenerateAgentTokenResult to auth.GenerateTokenResponse.
-// The generated struct only contains AgentId and Token fields.
-func parseGenerateTokenResult(r *api.GenerateAgentTokenResult) *auth.GenerateTokenResponse {
 	return &auth.GenerateTokenResponse{
-		AgentID: derefStr(r.AgentId),
-		Token:   derefStr(r.Token),
-	}
+		AgentID: derefStr(res.JSON200.AgentId),
+		Token:   derefStr(res.JSON200.Token),
+	}, nil
 }
 
 // AgentHeartbeat calls GET /api/agent/heartbeat (expects 204).
-// Token is injected automatically by the request editor from TokenManager.
 func (c *Client) AgentHeartbeat(ctx context.Context) error {
 	res, err := c.AgentHeartbeatPingWithResponse(ctx)
 	if err != nil {
-		return fmt.Errorf("agent heartbeat request: %w", err)
-	}
-	if res.StatusCode() == 401 {
-		return fmt.Errorf("agent heartbeat: 401 unauthorized")
+		return fmt.Errorf("agent heartbeat: %w", err)
 	}
 	if res.StatusCode() >= 400 {
 		return fmt.Errorf("agent heartbeat failed: status %d", res.StatusCode())
@@ -127,21 +179,29 @@ func (c *Client) AgentHeartbeat(ctx context.Context) error {
 	return nil
 }
 
-// GetArtifactPresignedURL returns a presigned download URL for the given artifact ID.
-// Not yet implemented in the generated API client — returns error for now.
+// UpdateScanner calls PATCH /api/agent/scanner.
+func (c *Client) UpdateScanner(ctx context.Context, req api.UpdateAgentScannerRequest) error {
+	res, err := c.UpdateAgentScannerWithResponse(ctx, req)
+	if err != nil {
+		return err
+	}
+	if res.StatusCode() >= 400 {
+		return fmt.Errorf("update scanner failed: status %d: %s", res.StatusCode(), string(res.Body))
+	}
+	return nil
+}
+
+// GetArtifactPresignedURL returns a presigned download URL for the given artifact.
+// TODO: implement when artifact endpoint is added to SDK swagger group.
 func (c *Client) GetArtifactPresignedURL(ctx context.Context, artifactID string) (string, error) {
-	return "", fmt.Errorf("artifact download not available: endpoint not implemented")
+	return "", fmt.Errorf("artifact download not available: endpoint not in SDK swagger")
 }
 
 // BaseURL returns the base URL of the API server.
-func (c *Client) BaseURL() string {
-	return c.baseURL
-}
+func (c *Client) BaseURL() string { return c.baseURL }
 
 // HTTPClient returns the underlying HTTP client.
-func (c *Client) HTTPClient() *http.Client {
-	return c.httpClient
-}
+func (c *Client) HTTPClient() *http.Client { return c.httpClient }
 
 // doRevoke calls POST /api/agent/token/revoke.
 func (c *Client) doRevoke(ctx context.Context, _ string) error {
@@ -155,68 +215,7 @@ func (c *Client) doRevoke(ctx context.Context, _ string) error {
 	return nil
 }
 
-// UpdateScanner calls PATCH /api/agent/scanner using the generated client.
-func (c *Client) UpdateScanner(ctx context.Context, req api.UpdateAgentScannerRequest) error {
-	res, err := c.UpdateAgentScannerWithResponse(ctx, req)
-	if err != nil {
-		return err
-	}
-	if res.StatusCode() >= 400 {
-		return fmt.Errorf("update scanner failed: status %d: %s", res.StatusCode(), string(res.Body))
-	}
-	return nil
-}
-
-// CheckAndRetry wraps an API call with 401 detection and token-refresh retry.
-func (c *Client) CheckAndRetry(ctx context.Context, statusCode int, body []byte, callFn func() (int, []byte, error)) (int, []byte, error) {
-	if statusCode != 401 {
-		return statusCode, body, nil
-	}
-
-	if err := c.tokenManager.GenerateToken(ctx); err != nil {
-		return statusCode, body, fmt.Errorf("token refresh failed: %w", err)
-	}
-
-	retryStatus, retryBody, err := callFn()
-	if err != nil {
-		return 0, nil, err
-	}
-	if retryStatus == 401 {
-		return retryStatus, retryBody, fmt.Errorf("authentication failed after re-registration")
-	}
-
-	return retryStatus, retryBody, nil
-}
-
 // --- Helpers ---
-
-func parseClusterInfo(ci *api.AgentClusterInfo) auth.ClusterInfo {
-	info := auth.ClusterInfo{
-		ID:   derefStr(ci.Id),
-		Name: derefStr(ci.Name),
-	}
-	if ci.AgentType != nil {
-		info.AgentType = string(*ci.AgentType)
-	}
-	if ci.Tags != nil {
-		info.Tags = *ci.Tags
-	}
-	if ci.AcceptUntaggedJobs != nil {
-		info.AcceptUntaggedJobs = *ci.AcceptUntaggedJobs
-	}
-	if ci.MaxConcurrentJobs != nil {
-		info.MaxConcurrentJobs = int(*ci.MaxConcurrentJobs)
-	}
-	return info
-}
-
-func parseScannerInfo(s api.ScannerInfo) auth.RegisteredScannerInfo {
-	return auth.RegisteredScannerInfo{
-		Name:        derefStr(s.Name),
-		DisplayName: derefStr(s.DisplayName),
-		System:      s.System != nil && *s.System,
-	}
-}
 
 func strPtr(s string) *string {
 	if s == "" {

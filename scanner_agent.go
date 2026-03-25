@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -134,6 +133,7 @@ func (sa *scannerAgent) run(ctx context.Context) error {
 }
 
 // heartbeatLoop sends GET /api/agent/heartbeat every 60s.
+// 401 retry is handled transparently by the transport layer.
 func (sa *scannerAgent) heartbeatLoop(ctx context.Context) {
 	ticker := time.NewTicker(agentHeartbeatInterval)
 	defer ticker.Stop()
@@ -144,17 +144,7 @@ func (sa *scannerAgent) heartbeatLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := sa.client.AgentHeartbeat(ctx); err != nil {
-				if strings.Contains(err.Error(), "401") {
-					if refreshErr := sa.refreshToken(ctx); refreshErr != nil {
-						sa.logger.Error("heartbeat token refresh failed", "error", refreshErr)
-						continue
-					}
-					if retryErr := sa.client.AgentHeartbeat(ctx); retryErr != nil {
-						sa.logger.Warn("heartbeat retry failed", "error", retryErr)
-					}
-				} else {
-					sa.logger.Warn("heartbeat failed", "error", err)
-				}
+				sa.logger.Warn("heartbeat failed", "error", err)
 			}
 		}
 	}
@@ -200,23 +190,12 @@ func (sa *scannerAgent) pollAndDispatch(ctx context.Context) {
 	}
 }
 
-// pullJob requests a job from the server with 401 retry.
+// pullJob requests a job from the server.
+// 401 retry is handled transparently by the transport layer.
 func (sa *scannerAgent) pullJob(ctx context.Context) (string, error) {
 	res, err := sa.client.RequestJobWithResponse(ctx)
 	if err != nil {
 		return "", err
-	}
-
-	// 401 → refresh token and retry once
-	if res.StatusCode() == 401 {
-		if refreshErr := sa.refreshToken(ctx); refreshErr != nil {
-			return "", fmt.Errorf("token refresh after 401: %w", refreshErr)
-		}
-		sa.logger.Info("token refreshed after 401")
-		res, err = sa.client.RequestJobWithResponse(ctx)
-		if err != nil {
-			return "", err
-		}
 	}
 
 	if res.StatusCode() == 204 {
@@ -234,24 +213,6 @@ func (sa *scannerAgent) pullJob(ctx context.Context) (string, error) {
 		return "", ErrNoJobAvailable
 	}
 	return jobID, nil
-}
-
-// refreshToken calls generate-token to get a new agent token.
-// Thread-safe, single-flight via mutex.
-func (sa *scannerAgent) refreshToken(ctx context.Context) error {
-	sa.mu.Lock()
-	defer sa.mu.Unlock()
-
-	resp, err := sa.client.DoGenerateToken(ctx, sa.genReq)
-	if err != nil {
-		return err
-	}
-
-	sa.token.Store(resp.Token)
-	sa.tokenManager.SetToken(resp.Token)
-	sa.agentID = resp.AgentID
-	sa.logger.Info("token refreshed", "agent_id", resp.AgentID)
-	return nil
 }
 
 // reportJobFailed reports a job failure to the server via the parent agent.
