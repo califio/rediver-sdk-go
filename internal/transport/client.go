@@ -193,6 +193,131 @@ func parseConnectResult(r *api.CreateAgentTokenResult) *auth.ConnectResponse {
 	return resp
 }
 
+// doGenerateToken calls POST /api/agent/generate-token for per-scanner token exchange.
+// Uses raw HTTP because the generated client may not yet have this endpoint.
+func (c *Client) DoGenerateToken(ctx context.Context, req auth.GenerateTokenRequest) (*auth.GenerateTokenResponse, error) {
+	body := map[string]interface{}{
+		"clusterToken": req.ClusterToken,
+		"scanner":      req.Scanner,
+		"persistent":   req.Persistent,
+	}
+	if req.Hostname != "" {
+		body["hostname"] = req.Hostname
+	}
+	if req.IPAddress != "" {
+		body["ipAddress"] = req.IPAddress
+	}
+	if req.Version != "" {
+		body["version"] = req.Version
+	}
+
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal generate-token request: %w", err)
+	}
+
+	rawURL := strings.TrimRight(c.baseURL, "/") + "/api/agent/generate-token"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(string(jsonBody)))
+	if err != nil {
+		return nil, fmt.Errorf("build generate-token request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("generate-token request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("generate-token failed: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		AgentId   string `json:"agentId"`
+		Token     string `json:"token"`
+		ExpiresAt string `json:"expiresAt"`
+		Scanner   struct {
+			Id          string                 `json:"id"`
+			Name        string                 `json:"name"`
+			RequestName string                 `json:"requestName"`
+			DisplayName string                 `json:"displayName"`
+			ParamsSchema map[string]interface{} `json:"paramsSchema"`
+			System      bool                   `json:"system"`
+		} `json:"scanner"`
+		Cluster struct {
+			Id                string   `json:"id"`
+			Name              string   `json:"name"`
+			AgentType         string   `json:"agentType"`
+			Tags              []string `json:"tags"`
+			AcceptUntaggedJobs bool    `json:"acceptUntaggedJobs"`
+			MaxConcurrentJobs  int     `json:"maxConcurrentJobs"`
+		} `json:"cluster"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decode generate-token response: %w", err)
+	}
+
+	return &auth.GenerateTokenResponse{
+		AgentID:   result.AgentId,
+		Token:     result.Token,
+		ExpiresAt: result.ExpiresAt,
+		Scanner: auth.RegisteredScannerInfo{
+			Name:        result.Scanner.Name,
+			RequestName: result.Scanner.RequestName,
+			DisplayName: result.Scanner.DisplayName,
+			System:      result.Scanner.System,
+		},
+		ClusterInfo: auth.ClusterInfo{
+			ID:                 result.Cluster.Id,
+			Name:               result.Cluster.Name,
+			AgentType:          result.Cluster.AgentType,
+			Tags:               result.Cluster.Tags,
+			AcceptUntaggedJobs: result.Cluster.AcceptUntaggedJobs,
+			MaxConcurrentJobs:  result.Cluster.MaxConcurrentJobs,
+		},
+	}, nil
+}
+
+// DoHeartbeatPing calls GET /api/agent/heartbeat (expects 204).
+// Uses its own token parameter since per-scanner agents have independent tokens.
+func (c *Client) DoHeartbeatPing(ctx context.Context, token string) error {
+	rawURL := strings.TrimRight(c.baseURL, "/") + "/api/agent/heartbeat"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return fmt.Errorf("build heartbeat-ping request: %w", err)
+	}
+	if token != "" {
+		req.Header.Set("X-Token", token)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("heartbeat-ping request: %w", err)
+	}
+	defer resp.Body.Close()
+	io.ReadAll(resp.Body) // drain body
+
+	if resp.StatusCode == 401 {
+		return fmt.Errorf("heartbeat-ping: 401 unauthorized")
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("heartbeat-ping failed: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// BaseURL returns the base URL of the API server.
+func (c *Client) BaseURL() string {
+	return c.baseURL
+}
+
+// HTTPClient returns the underlying HTTP client.
+func (c *Client) HTTPClient() *http.Client {
+	return c.httpClient
+}
+
 // doRevoke calls POST /api/agent/token/revoke.
 func (c *Client) doRevoke(ctx context.Context, _ string) error {
 	res, err := c.AgentTokenRevokeWithResponse(ctx)

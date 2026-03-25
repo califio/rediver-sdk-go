@@ -15,6 +15,7 @@ import (
 	"github.com/califio/rediver-sdk-go/internal/transport"
 	"github.com/califio/rediver-sdk-go/internal/worker"
 	"github.com/califio/rediver-sdk-go/utils"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -159,12 +160,8 @@ func (a *Agent) Run(ctx context.Context, runOpts ...RunOption) error {
 		return a.runTask(ctx, cfg)
 	}
 
-	// Worker/Daemon mode: full registration
-	if err := a.registerAndInitPool(ctx); err != nil {
-		return err
-	}
-
-	return a.runDaemon(ctx)
+	// Worker/Daemon mode: per-scanner agents via generate-token
+	return a.runWithScannerAgents(ctx)
 }
 
 // RunAsWorker explicitly runs in daemon mode (long-running poll loop).
@@ -374,7 +371,94 @@ func (a *Agent) registerAndInitPool(ctx context.Context) error {
 	return nil
 }
 
-// --- Daemon mode ---
+// --- Per-scanner agent mode (Worker) ---
+
+// runWithScannerAgents creates independent scannerAgents via generate-token and runs them.
+func (a *Agent) runWithScannerAgents(ctx context.Context) error {
+	persistent := a.config.runMode == RunModeWorker
+	hostname := a.config.hostname
+	if hostname == "" {
+		hostname = utils.GetIPAddress()
+	}
+	if hostname == "" && persistent {
+		return fmt.Errorf("%w: hostname or IP required for worker mode", ErrInvalidConfig)
+	}
+
+	// Phase 1: Generate tokens for all scanners
+	var scannerAgents []*scannerAgent
+	for name, s := range a.scanners {
+		sa, err := a.createScannerAgent(ctx, name, s, persistent, hostname)
+		if err != nil {
+			// First start: ANY failure → shutdown entire process
+			return fmt.Errorf("failed to initialize scanner %s: %w", name, err)
+		}
+		scannerAgents = append(scannerAgents, sa)
+	}
+
+	a.config.logger.Info("all scanner-agents initialized",
+		"count", len(scannerAgents),
+		"mode", a.config.runMode.String(),
+	)
+
+	// Phase 2: Launch all scanner-agents via errgroup
+	g, gCtx := errgroup.WithContext(ctx)
+	for _, sa := range scannerAgents {
+		g.Go(func() error { return sa.run(gCtx) })
+	}
+	return g.Wait()
+}
+
+// createScannerAgent calls POST /api/agent/generate-token for a single scanner
+// and returns a fully initialized scannerAgent.
+func (a *Agent) createScannerAgent(
+	ctx context.Context, name string, s Scanner,
+	persistent bool, hostname string,
+) (*scannerAgent, error) {
+	genReq := auth.GenerateTokenRequest{
+		ClusterToken: a.clusterToken,
+		Scanner:      name,
+		Persistent:   persistent,
+		Hostname:     hostname,
+		IPAddress:    utils.GetIPAddress(),
+		Version:      a.config.version,
+	}
+
+	var resp *auth.GenerateTokenResponse
+	if err := a.retrier.Do(ctx, func() error {
+		var genErr error
+		resp, genErr = a.client.DoGenerateToken(ctx, genReq)
+		return genErr
+	}); err != nil {
+		return nil, err
+	}
+
+	// Remap scanner name if backend resolved differently
+	scannerInfo := resp.Scanner
+	if scannerInfo.RequestName != "" && scannerInfo.RequestName != scannerInfo.Name {
+		a.config.logger.Info("scanner name remapped",
+			"from", scannerInfo.RequestName,
+			"to", scannerInfo.Name,
+		)
+	}
+
+	// Update scanner metadata
+	a.updateScannerMetadata(ctx, []auth.RegisteredScannerInfo{scannerInfo}, scannerInfo.System)
+
+	sa, err := newScannerAgent(a, s, resp, genReq, a.config, a.client)
+	if err != nil {
+		return nil, err
+	}
+
+	a.config.logger.Info("scanner-agent created",
+		"scanner", scannerInfo.Name,
+		"agent_id", resp.AgentID,
+		"persistent", persistent,
+	)
+
+	return sa, nil
+}
+
+// --- Daemon mode (legacy — used by registerAndInitPool path) ---
 
 func (a *Agent) runDaemon(ctx context.Context) error {
 	// drainCtx stays alive during graceful shutdown so running jobs

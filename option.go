@@ -113,6 +113,8 @@ func WithPollInterval(d time.Duration) Option {
 }
 
 // WithAgentID forces a specific agent ID instead of using cached/generated.
+// Deprecated: Per-scanner agents use generate-token which assigns agent IDs server-side.
+// This option is a no-op and will be removed in a future version.
 func WithAgentID(id string) Option {
 	return func(c *agentConfig) {
 		c.agentID = id
@@ -120,6 +122,8 @@ func WithAgentID(id string) Option {
 }
 
 // WithAgentIDPath sets the file path for agent ID persistence (daemon only).
+// Deprecated: Per-scanner agents no longer persist agent IDs to disk.
+// This option is a no-op and will be removed in a future version.
 func WithAgentIDPath(path string) Option {
 	return func(c *agentConfig) {
 		c.agentIDPath = path

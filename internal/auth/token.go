@@ -85,6 +85,32 @@ type ConnectResponse struct {
 	Scanners    []RegisteredScannerInfo // populated when scanners sent in request (task mode)
 }
 
+// GenerateTokenRequest is the data sent to POST /api/agent/generate-token.
+// Per-scanner token exchange: cluster token + single scanner → agent token.
+type GenerateTokenRequest struct {
+	ClusterToken string
+	Scanner      string // single scanner name
+	Persistent   bool   // true=worker, false=task/CI
+	Hostname     string
+	IPAddress    string
+	Version      string
+}
+
+// GenerateTokenResponse is the data received from POST /api/agent/generate-token.
+type GenerateTokenResponse struct {
+	AgentID     string
+	Token       string
+	ExpiresAt   string
+	Scanner     RegisteredScannerInfo // single scanner (not list)
+	ClusterInfo ClusterInfo
+}
+
+// GenerateTokenFunc is the function that performs per-scanner token exchange.
+type GenerateTokenFunc func(ctx context.Context, req GenerateTokenRequest) (*GenerateTokenResponse, error)
+
+// HeartbeatPingFunc is the function that sends GET /api/agent/heartbeat (204 response).
+type HeartbeatPingFunc func(ctx context.Context) error
+
 // RegisterFunc is the function that performs the actual HTTP registration.
 type RegisterFunc func(ctx context.Context, req RegistrationRequest) (*RegistrationResponse, error)
 
@@ -243,6 +269,11 @@ func (tm *TokenManager) Reregister(ctx context.Context, oldToken string) error {
 	tm.agentID = resp.AgentID
 	tm.clusterInfo = resp.ClusterInfo
 	return nil
+}
+
+// SetToken stores an agent token directly (used by per-scanner agents after generate-token).
+func (tm *TokenManager) SetToken(token string) {
+	tm.agentToken.Store(token)
 }
 
 // AgentToken returns the current agent token for X-Token header.

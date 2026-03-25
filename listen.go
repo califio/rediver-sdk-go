@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/califio/rediver-sdk-go/internal/auth"
+	"github.com/califio/rediver-sdk-go/utils"
+	"golang.org/x/sync/errgroup"
 )
 
 // JobHandler is called when a job is pulled from the server.
@@ -41,11 +45,61 @@ func (a *Agent) ListenForJobs(ctx context.Context, handler JobHandler) error {
 	// Force Worker mode for registration path
 	a.config.runMode = RunModeWorker
 
-	if err := a.registerAndInitPool(ctx); err != nil {
-		return err
+	return a.runListenerWithScannerAgents(ctx, handler)
+}
+
+// runListenerWithScannerAgents creates per-scanner agents and runs listen-mode dispatch loops.
+func (a *Agent) runListenerWithScannerAgents(ctx context.Context, handler JobHandler) error {
+	persistent := true // ListenForJobs always uses worker mode
+	hostname := a.config.hostname
+	if hostname == "" {
+		hostname = utils.GetIPAddress()
+	}
+	if hostname == "" {
+		return fmt.Errorf("%w: hostname or IP required for worker mode", ErrInvalidConfig)
 	}
 
-	return a.runListener(ctx, handler)
+	// Generate tokens for all scanners
+	var scannerAgents []*scannerAgent
+	for name, s := range a.scanners {
+		genReq := auth.GenerateTokenRequest{
+			ClusterToken: a.clusterToken,
+			Scanner:      name,
+			Persistent:   persistent,
+			Hostname:     hostname,
+			IPAddress:    utils.GetIPAddress(),
+			Version:      a.config.version,
+		}
+
+		var resp *auth.GenerateTokenResponse
+		if err := a.retrier.Do(ctx, func() error {
+			var genErr error
+			resp, genErr = a.client.DoGenerateToken(ctx, genReq)
+			return genErr
+		}); err != nil {
+			return fmt.Errorf("failed to initialize scanner %s: %w", name, err)
+		}
+
+		// Update scanner metadata
+		a.updateScannerMetadata(ctx, []auth.RegisteredScannerInfo{resp.Scanner}, resp.Scanner.System)
+
+		sa, err := newScannerAgent(a, s, resp, genReq, a.config, a.client)
+		if err != nil {
+			return fmt.Errorf("create scanner-agent %s: %w", name, err)
+		}
+		scannerAgents = append(scannerAgents, sa)
+	}
+
+	a.config.logger.Info("all scanner-agent listeners initialized",
+		"count", len(scannerAgents),
+	)
+
+	// Launch all scanner-agent listeners via errgroup
+	g, gCtx := errgroup.WithContext(ctx)
+	for _, sa := range scannerAgents {
+		g.Go(func() error { return sa.runListener(gCtx, handler) })
+	}
+	return g.Wait()
 }
 
 // dispatchJob implements worker.Job for the listen-mode dispatch path.
