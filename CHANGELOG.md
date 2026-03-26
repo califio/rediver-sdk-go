@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-26
+
+### Breaking Changes
+- Removed deprecated `WithAgentID`, `WithAgentIDPath`, `Reregister`, `ErrReregistered`
+- Removed `ListenForJobs` and listen-mode code
+- Replaced `Agent` with `Runner` as primary public API — use `NewRunner` instead
+
+### Added
+- `Runner` as primary public API with `NewRunner` constructor
+- Artifact API endpoints: presign, complete, download
+- `GetArtifactPresignedURL` — returns presigned download URL for artifacts
+- Per-scanner agent architecture with generate-token flow
+- Auto 401 refresh via `authRetryTransport` RoundTripper middleware
+- `GenerateToken` and `RunModeDispatcher` in auth package
+- Comprehensive edge case unit tests and transport unit tests
+
+### Changed
+- Renamed `DoHeartbeatPing` to `AgentHeartbeat`, removed token param
+- Simplified `TokenManager` internals
+- Moved agent struct to internal, `Runner` wraps it as thin public API
+- Regenerated API client with poll job and artifact endpoints
+- Removed dead scanner name remapping logic
+
+### Documentation
+- Updated examples to use `NewRunner` API
+
 ## [1.0.3] - 2026-03-24
 
 ### Fixed
