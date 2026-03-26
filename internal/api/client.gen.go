@@ -283,6 +283,13 @@ type CommitRef struct {
 	Type          *GitRefType `json:"type,omitempty"`
 }
 
+// CompleteArtifactRequest defines model for CompleteArtifactRequest.
+type CompleteArtifactRequest struct {
+	ArtifactId *string `json:"artifact_id,omitempty"`
+	Checksum   *string `json:"checksum"`
+	FileSize   int64   `json:"file_size"`
+}
+
 // ContainerContext defines model for ContainerContext.
 type ContainerContext struct {
 	Credential *AssetCredential `json:"credential,omitempty"`
@@ -580,6 +587,12 @@ type GenerateAgentTokenResult struct {
 	Token   *string `json:"token,omitempty"`
 }
 
+// GetArtifactDownloadResult defines model for GetArtifactDownloadResult.
+type GetArtifactDownloadResult struct {
+	ExpiresIn    *int32  `json:"expires_in,omitempty"`
+	PresignedUrl *string `json:"presigned_url,omitempty"`
+}
+
 // GetDomainByIpResult defines model for GetDomainByIpResult.
 type GetDomainByIpResult struct {
 	Domains *[]string `json:"domains,omitempty"`
@@ -718,6 +731,23 @@ type JobTarget struct {
 type PollJobResult struct {
 	JobId   *string `json:"job_id"`
 	Scanner *string `json:"scanner"`
+}
+
+// PresignArtifactRequest defines model for PresignArtifactRequest.
+type PresignArtifactRequest struct {
+	Checksum    *string `json:"checksum"`
+	ContentType *string `json:"content_type,omitempty"`
+	FileName    string  `json:"file_name"`
+	FileSize    *int64  `json:"file_size,omitempty"`
+	WorkflowId  *string `json:"workflow_id,omitempty"`
+}
+
+// PresignArtifactResult defines model for PresignArtifactResult.
+type PresignArtifactResult struct {
+	ArtifactId   *string `json:"artifact_id,omitempty"`
+	ExpiresIn    *int32  `json:"expires_in,omitempty"`
+	Idempotent   *bool   `json:"idempotent,omitempty"`
+	PresignedUrl *string `json:"presigned_url,omitempty"`
 }
 
 // PullUntriagedCredentialLeakResult defines model for PullUntriagedCredentialLeakResult.
@@ -1005,6 +1035,12 @@ type UpdateAgentScannerJSONRequestBody = UpdateAgentScannerRequest
 
 // CreateAgentTokenJSONRequestBody defines body for CreateAgentToken for application/json ContentType.
 type CreateAgentTokenJSONRequestBody = CreateAgentTokenRequest
+
+// PresignArtifactJSONRequestBody defines body for PresignArtifact for application/json ContentType.
+type PresignArtifactJSONRequestBody = PresignArtifactRequest
+
+// CompleteArtifactJSONRequestBody defines body for CompleteArtifact for application/json ContentType.
+type CompleteArtifactJSONRequestBody = CompleteArtifactRequest
 
 // AsAssetTypes returns the union data inside the FindingDetail_AssetType as a AssetTypes
 func (t FindingDetail_AssetType) AsAssetTypes() (AssetTypes, error) {
@@ -1362,6 +1398,19 @@ type ClientInterface interface {
 
 	// AgentTokenRevoke request
 	AgentTokenRevoke(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PresignArtifactWithBody request with any body
+	PresignArtifactWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PresignArtifact(ctx context.Context, body PresignArtifactJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CompleteArtifactWithBody request with any body
+	CompleteArtifactWithBody(ctx context.Context, artifactId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CompleteArtifact(ctx context.Context, artifactId string, body CompleteArtifactJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetArtifactDownload request
+	GetArtifactDownload(ctx context.Context, artifactId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) PushAssetsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2002,6 +2051,66 @@ func (c *Client) CreateAgentToken(ctx context.Context, body CreateAgentTokenJSON
 
 func (c *Client) AgentTokenRevoke(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAgentTokenRevokeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PresignArtifactWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPresignArtifactRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PresignArtifact(ctx context.Context, body PresignArtifactJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPresignArtifactRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CompleteArtifactWithBody(ctx context.Context, artifactId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCompleteArtifactRequestWithBody(c.Server, artifactId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CompleteArtifact(ctx context.Context, artifactId string, body CompleteArtifactJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCompleteArtifactRequest(c.Server, artifactId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetArtifactDownload(ctx context.Context, artifactId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetArtifactDownloadRequest(c.Server, artifactId)
 	if err != nil {
 		return nil, err
 	}
@@ -3238,6 +3347,127 @@ func NewAgentTokenRevokeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewPresignArtifactRequest calls the generic PresignArtifact builder with application/json body
+func NewPresignArtifactRequest(server string, body PresignArtifactJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPresignArtifactRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPresignArtifactRequestWithBody generates requests for PresignArtifact with any type of body
+func NewPresignArtifactRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/artifact/presign")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCompleteArtifactRequest calls the generic CompleteArtifact builder with application/json body
+func NewCompleteArtifactRequest(server string, artifactId string, body CompleteArtifactJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCompleteArtifactRequestWithBody(server, artifactId, "application/json", bodyReader)
+}
+
+// NewCompleteArtifactRequestWithBody generates requests for CompleteArtifact with any type of body
+func NewCompleteArtifactRequestWithBody(server string, artifactId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "artifact_id", runtime.ParamLocationPath, artifactId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/artifact/%s/complete", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetArtifactDownloadRequest generates requests for GetArtifactDownload
+func NewGetArtifactDownloadRequest(server string, artifactId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "artifact_id", runtime.ParamLocationPath, artifactId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/artifact/%s/download", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -3420,6 +3650,19 @@ type ClientWithResponsesInterface interface {
 
 	// AgentTokenRevokeWithResponse request
 	AgentTokenRevokeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AgentTokenRevokeResponse, error)
+
+	// PresignArtifactWithBodyWithResponse request with any body
+	PresignArtifactWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PresignArtifactResponse, error)
+
+	PresignArtifactWithResponse(ctx context.Context, body PresignArtifactJSONRequestBody, reqEditors ...RequestEditorFn) (*PresignArtifactResponse, error)
+
+	// CompleteArtifactWithBodyWithResponse request with any body
+	CompleteArtifactWithBodyWithResponse(ctx context.Context, artifactId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteArtifactResponse, error)
+
+	CompleteArtifactWithResponse(ctx context.Context, artifactId string, body CompleteArtifactJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteArtifactResponse, error)
+
+	// GetArtifactDownloadWithResponse request
+	GetArtifactDownloadWithResponse(ctx context.Context, artifactId string, reqEditors ...RequestEditorFn) (*GetArtifactDownloadResponse, error)
 }
 
 type PushAssetsResponse struct {
@@ -4131,6 +4374,72 @@ func (r AgentTokenRevokeResponse) StatusCode() int {
 	return 0
 }
 
+type PresignArtifactResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON200                   *PresignArtifactResult
+	ApplicationproblemJSON400 *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r PresignArtifactResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PresignArtifactResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type CompleteArtifactResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r CompleteArtifactResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CompleteArtifactResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetArtifactDownloadResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *GetArtifactDownloadResult
+}
+
+// Status returns HTTPResponse.Status
+func (r GetArtifactDownloadResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetArtifactDownloadResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // PushAssetsWithBodyWithResponse request with arbitrary body returning *PushAssetsResponse
 func (c *ClientWithResponses) PushAssetsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PushAssetsResponse, error) {
 	rsp, err := c.PushAssetsWithBody(ctx, contentType, body, reqEditors...)
@@ -4593,6 +4902,49 @@ func (c *ClientWithResponses) AgentTokenRevokeWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseAgentTokenRevokeResponse(rsp)
+}
+
+// PresignArtifactWithBodyWithResponse request with arbitrary body returning *PresignArtifactResponse
+func (c *ClientWithResponses) PresignArtifactWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PresignArtifactResponse, error) {
+	rsp, err := c.PresignArtifactWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePresignArtifactResponse(rsp)
+}
+
+func (c *ClientWithResponses) PresignArtifactWithResponse(ctx context.Context, body PresignArtifactJSONRequestBody, reqEditors ...RequestEditorFn) (*PresignArtifactResponse, error) {
+	rsp, err := c.PresignArtifact(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePresignArtifactResponse(rsp)
+}
+
+// CompleteArtifactWithBodyWithResponse request with arbitrary body returning *CompleteArtifactResponse
+func (c *ClientWithResponses) CompleteArtifactWithBodyWithResponse(ctx context.Context, artifactId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteArtifactResponse, error) {
+	rsp, err := c.CompleteArtifactWithBody(ctx, artifactId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCompleteArtifactResponse(rsp)
+}
+
+func (c *ClientWithResponses) CompleteArtifactWithResponse(ctx context.Context, artifactId string, body CompleteArtifactJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteArtifactResponse, error) {
+	rsp, err := c.CompleteArtifact(ctx, artifactId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCompleteArtifactResponse(rsp)
+}
+
+// GetArtifactDownloadWithResponse request returning *GetArtifactDownloadResponse
+func (c *ClientWithResponses) GetArtifactDownloadWithResponse(ctx context.Context, artifactId string, reqEditors ...RequestEditorFn) (*GetArtifactDownloadResponse, error) {
+	rsp, err := c.GetArtifactDownload(ctx, artifactId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetArtifactDownloadResponse(rsp)
 }
 
 // ParsePushAssetsResponse parses an HTTP response from a PushAssetsWithResponse call
@@ -5449,6 +5801,81 @@ func ParseAgentTokenRevokeResponse(rsp *http.Response) (*AgentTokenRevokeRespons
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest RevokeAgentTokenResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePresignArtifactResponse parses an HTTP response from a PresignArtifactWithResponse call
+func ParsePresignArtifactResponse(rsp *http.Response) (*PresignArtifactResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PresignArtifactResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PresignArtifactResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCompleteArtifactResponse parses an HTTP response from a CompleteArtifactWithResponse call
+func ParseCompleteArtifactResponse(rsp *http.Response) (*CompleteArtifactResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CompleteArtifactResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetArtifactDownloadResponse parses an HTTP response from a GetArtifactDownloadWithResponse call
+func ParseGetArtifactDownloadResponse(rsp *http.Response) (*GetArtifactDownloadResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetArtifactDownloadResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GetArtifactDownloadResult
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

@@ -192,9 +192,21 @@ func (c *Client) UpdateScanner(ctx context.Context, req api.UpdateAgentScannerRe
 }
 
 // GetArtifactPresignedURL returns a presigned download URL for the given artifact.
-// TODO: implement when artifact endpoint is added to SDK swagger group.
 func (c *Client) GetArtifactPresignedURL(ctx context.Context, artifactID string) (string, error) {
-	return "", fmt.Errorf("artifact download not available: endpoint not in SDK swagger")
+	res, err := c.GetArtifactDownloadWithResponse(ctx, artifactID)
+	if err != nil {
+		return "", fmt.Errorf("artifact download request: %w", err)
+	}
+	if res.StatusCode() == 410 {
+		return "", fmt.Errorf("artifact expired")
+	}
+	if res.StatusCode() >= 400 {
+		return "", fmt.Errorf("artifact download failed: status %d: %s", res.StatusCode(), string(res.Body))
+	}
+	if res.JSON200 == nil || res.JSON200.PresignedUrl == nil {
+		return "", fmt.Errorf("artifact download: empty presigned URL in response")
+	}
+	return *res.JSON200.PresignedUrl, nil
 }
 
 // BaseURL returns the base URL of the API server.
