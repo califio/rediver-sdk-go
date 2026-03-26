@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-03-26
+
+### Fixed
+- Shallow clone baseline unreachable — progressively deepen (10→20→50→100) until merge-base connects HEAD to BaseCommitSHA
+- Git fetch/checkout errors now include stderr output instead of just exit codes
+
 ## [1.2.2] - 2026-03-26
 
 ### Fixed
