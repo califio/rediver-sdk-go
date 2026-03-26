@@ -158,7 +158,7 @@ func (r *Runner) Stop() {
 // runWorker creates persistent agents (Worker mode) and runs them in parallel.
 // Fails fast: if any agent fails to initialize, Run returns immediately.
 func (r *Runner) runWorker(ctx context.Context) error {
-	agents, err := r.createAgents(ctx, true)
+	agents, err := r.createAgents(ctx, true, true) // persistent + syncMetadata
 	if err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func (r *Runner) runWorker(ctx context.Context) error {
 
 // runTask creates ephemeral agents (Task mode) and runs each once.
 func (r *Runner) runTask(ctx context.Context) error {
-	agents, err := r.createAgents(ctx, false)
+	agents, err := r.createAgents(ctx, false, false) // ephemeral, no sync
 	if err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func (r *Runner) runTask(ctx context.Context) error {
 
 // runCI creates ephemeral agents (CI mode) and runs each in CI mode.
 func (r *Runner) runCI(ctx context.Context) error {
-	agents, err := r.createAgents(ctx, false)
+	agents, err := r.createAgents(ctx, false, false) // ephemeral, no sync
 	if err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func (r *Runner) runCI(ctx context.Context) error {
 
 // runDispatcher creates persistent agents (Dispatcher mode) and runs each in dispatch mode.
 func (r *Runner) runDispatcher(ctx context.Context, handler JobHandler) error {
-	agents, err := r.createAgents(ctx, true)
+	agents, err := r.createAgents(ctx, true, false) // persistent, no sync (dispatcher doesn't own scanner config)
 	if err != nil {
 		return err
 	}
@@ -225,10 +225,12 @@ func (r *Runner) runDispatcher(ctx context.Context, handler JobHandler) error {
 }
 
 // createAgents generates tokens for all scanners sequentially (fail fast) and returns agents.
-func (r *Runner) createAgents(ctx context.Context, persistent bool) ([]*agent, error) {
+// persistent: save agent token to Agents table (long-running modes)
+// syncMetadata: update scanner config on backend (Worker mode only)
+func (r *Runner) createAgents(ctx context.Context, persistent, syncMetadata bool) ([]*agent, error) {
 	agents := make([]*agent, 0, len(r.scanners))
 	for _, s := range r.scanners {
-		a, err := newAgent(ctx, s, r.clusterToken, r.serverURL, persistent, r.config)
+		a, err := newAgent(ctx, s, r.clusterToken, r.serverURL, persistent, syncMetadata, r.config)
 		if err != nil {
 			return nil, fmt.Errorf("initialize scanner %q: %w", s.Name(), err)
 		}

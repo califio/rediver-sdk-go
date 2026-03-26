@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-03-26
+
+### Changed
+- Separate `persistent` and `syncMetadata` flags in agent creation — Dispatcher mode is persistent but does not sync scanner metadata (only Worker mode syncs)
+
 ## [1.2.4] - 2026-03-26
 
 ### Added

@@ -50,7 +50,7 @@ type agent struct {
 
 // newAgent creates a fully initialized agent by generating a token for the given scanner.
 // persistent=true for Worker/Dispatcher modes, false for Task/CI modes.
-func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, persistent bool, config *runnerConfig) (*agent, error) {
+func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, persistent, syncMetadata bool, config *runnerConfig) (*agent, error) {
 	hostname := config.hostname
 	if hostname == "" {
 		hostname = utils.GetIPAddress()
@@ -114,8 +114,8 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 
 	a.pool = worker.NewPool(config.maxConcurrency, config.maxConcurrency*2)
 
-	// Sync scanner metadata to backend for Worker/Dispatcher modes
-	if persistent {
+	// Sync scanner metadata to backend (Worker mode only — not for Dispatcher/Task/CI)
+	if syncMetadata {
 		a.syncScannerMetadata(ctx)
 	}
 
