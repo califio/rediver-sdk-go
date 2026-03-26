@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-03-26
+
+### Fixed
+- Scanner metadata (asset_types) not synced because generate-token response lacks scanner info — now uses scanner's own metadata directly
+- Aliased `GenerateTokenResponse` to generated `api.GenerateAgentTokenResult` for type safety
+
+### Removed
+- Dead `ClusterInfo` struct and `Job.ClusterInfo()` method (never populated by backend)
+- Dead `RegisteredScannerInfo` struct (unused after metadata sync fix)
+
 ## [1.2.0] - 2026-03-26
 
 ### Breaking Changes
