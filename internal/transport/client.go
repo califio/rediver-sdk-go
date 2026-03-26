@@ -161,10 +161,7 @@ func (c *Client) DoGenerateToken(ctx context.Context, req auth.GenerateTokenRequ
 	if res.JSON200 == nil {
 		return nil, fmt.Errorf("generate-token failed: empty response")
 	}
-	return &auth.GenerateTokenResponse{
-		AgentID: derefStr(res.JSON200.AgentId),
-		Token:   derefStr(res.JSON200.Token),
-	}, nil
+	return res.JSON200, nil
 }
 
 // AgentHeartbeat calls GET /api/agent/heartbeat (expects 204).

@@ -38,17 +38,6 @@ func (t JobType) String() string {
 	}
 }
 
-// ClusterInfo holds cluster metadata from registration.
-// Accessible via job.ClusterInfo() for scanner-side routing decisions.
-type ClusterInfo struct {
-	ID                 string
-	Name               string
-	AgentType          string
-	Tags               []string
-	AcceptUntaggedJobs bool
-	MaxConcurrentJobs  int
-}
-
 // Integration holds third-party integration tokens for the job.
 type Integration struct {
 	CloudflareTokens []string
@@ -143,9 +132,6 @@ type Job interface {
 	// Only valid for repository jobs with diff information.
 	ChangedFiles(ctx context.Context) (*utils.ChangedFiles, error)
 
-	// ClusterInfo returns metadata about the cluster this agent belongs to.
-	ClusterInfo() ClusterInfo
-
 	// Integration returns third-party integration tokens for this job.
 	// Returns nil if no integrations are configured.
 	Integration() *Integration
@@ -173,7 +159,6 @@ type artifactDownloadFunc func(ctx context.Context, artifactID string) (string, 
 type job struct {
 	detail               *api.JobDetail
 	params               map[string]interface{}
-	clusterInfo          ClusterInfo
 	ciContext            *CIContext            // non-nil = CI mode
 	logger               *slog.Logger          // job-scoped logger (multi-handler: console + buffer)
 	repoDir              string                // prepared repo path (CI dir or cloned temp dir)
@@ -182,11 +167,8 @@ type job struct {
 	artifactDownloadFn   artifactDownloadFunc  // injected by Agent for artifact-based repos
 }
 
-func newJob(detail *api.JobDetail, ci ...ClusterInfo) Job {
+func newJob(detail *api.JobDetail) Job {
 	j := &job{detail: detail}
-	if len(ci) > 0 {
-		j.clusterInfo = ci[0]
-	}
 	if detail != nil {
 		j.resolveParams()
 	}
@@ -195,7 +177,7 @@ func newJob(detail *api.JobDetail, ci ...ClusterInfo) Job {
 
 // newCIJob creates a Job from CIContext data. No api.JobDetail needed.
 // The job ID comes from the create-job API response.
-func newCIJob(jobID string, ci *CIContext, scannerName string, params map[string]interface{}, clusterInfo ClusterInfo) Job {
+func newCIJob(jobID string, ci *CIContext, scannerName string, params map[string]interface{}) Job {
 	// Build a minimal JobDetail for compatibility with existing Job interface methods
 	detail := &api.JobDetail{
 		Id:      &jobID,
@@ -223,10 +205,9 @@ func newCIJob(jobID string, ci *CIContext, scannerName string, params map[string
 		detail.Params = &params
 	}
 	j := &job{
-		detail:      detail,
-		clusterInfo: clusterInfo,
-		ciContext:   ci,
-		params:      params,
+		detail:    detail,
+		ciContext: ci,
+		params:    params,
 	}
 	return j
 }
@@ -751,10 +732,6 @@ func (j *job) ChangedFiles(ctx context.Context) (*utils.ChangedFiles, error) {
 	// Use HEAD (current checkout) as head ref — more reliable than CommitSHA
 	// because GitLab MR checkout lands on FETCH_HEAD, not a named ref.
 	return utils.GitDiff(ctx, j.repoDir, baseRef, "HEAD")
-}
-
-func (j *job) ClusterInfo() ClusterInfo {
-	return j.clusterInfo
 }
 
 func (j *job) Integration() *Integration {

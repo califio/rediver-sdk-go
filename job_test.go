@@ -407,40 +407,6 @@ func TestJob_Logger_Nil(t *testing.T) {
 	logger.Info("test message")
 }
 
-// --- job.ClusterInfo ---
-
-func TestJob_ClusterInfo(t *testing.T) {
-	ci := ClusterInfo{
-		ID:                 "c1",
-		Name:               "scanner-cluster",
-		AgentType:          "scanner",
-		Tags:               []string{"prod", "us-east"},
-		AcceptUntaggedJobs: true,
-		MaxConcurrentJobs:  5,
-	}
-	j := newJob(&api.JobDetail{}, ci)
-	info := j.ClusterInfo()
-	if info.ID != "c1" {
-		t.Errorf("ID: got %q", info.ID)
-	}
-	if info.Name != "scanner-cluster" {
-		t.Errorf("Name: got %q", info.Name)
-	}
-	if len(info.Tags) != 2 {
-		t.Errorf("Tags: got %v", info.Tags)
-	}
-	if !info.AcceptUntaggedJobs {
-		t.Error("expected AcceptUntaggedJobs true")
-	}
-}
-
-func TestJob_ClusterInfo_Default(t *testing.T) {
-	j := newJob(&api.JobDetail{})
-	info := j.ClusterInfo()
-	if info.ID != "" {
-		t.Errorf("default cluster info should have empty ID, got %q", info.ID)
-	}
-}
 
 // --- job.Integration ---
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+
+	"github.com/califio/rediver-sdk-go/internal/api"
 )
 
 // RunMode determines the agent execution mode.
@@ -29,24 +31,6 @@ func (m RunMode) String() string {
 	}
 }
 
-// RegisteredScannerInfo is returned by backend after generate-token.
-type RegisteredScannerInfo struct {
-	Name         string                 // scanner name in DB
-	DisplayName  string                 // human-readable label from DB
-	ParamsSchema map[string]interface{} // current JSON Schema in DB, nil if none
-	System       bool                   // true if this is a system scanner
-}
-
-// ClusterInfo holds cluster metadata from token exchange.
-type ClusterInfo struct {
-	ID                 string
-	Name               string
-	AgentType          string
-	Tags               []string
-	AcceptUntaggedJobs bool
-	MaxConcurrentJobs  int
-}
-
 // GenerateTokenRequest is the data sent to POST /api/agent/generate-token.
 // Per-scanner token exchange: cluster token + single scanner → agent token.
 type GenerateTokenRequest struct {
@@ -59,14 +43,8 @@ type GenerateTokenRequest struct {
 	AgentId      *string // nullable; set after first generate-token for 401 refresh
 }
 
-// GenerateTokenResponse is the data received from POST /api/agent/generate-token.
-type GenerateTokenResponse struct {
-	AgentID     string
-	Token       string
-	ExpiresAt   string
-	Scanner     RegisteredScannerInfo // single scanner (not list)
-	ClusterInfo ClusterInfo
-}
+// GenerateTokenResponse aliases the generated API result type.
+type GenerateTokenResponse = api.GenerateAgentTokenResult
 
 // GenerateTokenFunc is the function that performs per-scanner token exchange.
 type GenerateTokenFunc func(ctx context.Context, req GenerateTokenRequest) (*GenerateTokenResponse, error)
@@ -81,9 +59,8 @@ type RevokeFunc func(ctx context.Context, token string) error
 // All modes use generate-token for initial acquisition and 401 refresh.
 type TokenManager struct {
 	clusterToken string
-	agentToken   atomic.Value     // stores string
+	agentToken   atomic.Value // stores string
 	agentID      string
-	clusterInfo  ClusterInfo
 	mu           sync.Mutex
 	revokeFn     RevokeFunc
 	generateFn   GenerateTokenFunc    // for 401 refresh
@@ -127,9 +104,8 @@ func (tm *TokenManager) GenerateToken(ctx context.Context) error {
 		return fmt.Errorf("generate token: %w", err)
 	}
 
-	tm.agentToken.Store(resp.Token)
-	tm.agentID = resp.AgentID
-	tm.clusterInfo = resp.ClusterInfo
+	tm.agentToken.Store(derefStr(resp.Token))
+	tm.agentID = derefStr(resp.AgentId)
 	return nil
 }
 
@@ -143,10 +119,6 @@ func (tm *TokenManager) SetAgentID(id string) {
 	tm.agentID = id
 }
 
-// SetClusterInfo stores cluster metadata (used after generate-token in Task/CI modes).
-func (tm *TokenManager) SetClusterInfo(ci ClusterInfo) {
-	tm.clusterInfo = ci
-}
 
 // SetGenReq caches the GenerateTokenRequest for 401 refresh in Task/CI modes.
 func (tm *TokenManager) SetGenReq(req GenerateTokenRequest) {
@@ -168,10 +140,6 @@ func (tm *TokenManager) AgentID() string {
 	return tm.agentID
 }
 
-// GetClusterInfo returns cluster metadata from last token exchange.
-func (tm *TokenManager) GetClusterInfo() ClusterInfo {
-	return tm.clusterInfo
-}
 
 // RevokeToken calls POST /api/agent/token/revoke (task/CI mode shutdown).
 func (tm *TokenManager) RevokeToken(ctx context.Context) error {
@@ -183,4 +151,11 @@ func (tm *TokenManager) RevokeToken(ctx context.Context) error {
 		return nil
 	}
 	return tm.revokeFn(ctx, token)
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

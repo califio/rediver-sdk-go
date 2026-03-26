@@ -32,7 +32,6 @@ type agent struct {
 	agentID      string          // from generate-token response
 	config       *runnerConfig   // shared from Runner (read-only after creation)
 	token        atomic.Value    // stores string — current agent token
-	clusterInfo  auth.ClusterInfo
 
 	tokenManager *auth.TokenManager  // per-agent token lifecycle
 	client       *transport.Client   // per-agent HTTP client
@@ -90,40 +89,39 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 	}
 
 	// Cache AgentId in genReq for subsequent 401 refreshes
-	agentIDCopy := resp.AgentID
-	genReq.AgentId = &agentIDCopy
+	agentID := derefStr(resp.AgentId)
+	genReq.AgentId = &agentID
 	tm.SetGenReq(genReq)
-	tm.SetToken(resp.Token)
-	tm.SetAgentID(resp.AgentID)
-	tm.SetClusterInfo(resp.ClusterInfo)
+	token := derefStr(resp.Token)
+	tm.SetToken(token)
+	tm.SetAgentID(agentID)
 
 	a := &agent{
 		scanner:      s,
 		scannerName:  scannerName,
-		agentID:      resp.AgentID,
+		agentID:      agentID,
 		config:       config,
-		clusterInfo:  resp.ClusterInfo,
 		tokenManager: tm,
 		client:       client,
 		retrier:      ret,
 		genReq:       genReq,
 		logger: config.logger.With(
 			"scanner", scannerName,
-			"agent_id", resp.AgentID,
+			"agent_id", agentID,
 		),
 	}
-	a.token.Store(resp.Token)
+	a.token.Store(token)
 
 	a.pool = worker.NewPool(config.maxConcurrency, config.maxConcurrency*2)
 
 	// Sync scanner metadata to backend for Worker/Dispatcher modes
-	if persistent && resp.Scanner.Name != "" {
-		a.updateScannerMetadata(ctx, resp.Scanner)
+	if persistent {
+		a.syncScannerMetadata(ctx)
 	}
 
 	config.logger.Info("agent initialized",
 		"scanner", scannerName,
-		"agent_id", resp.AgentID,
+		"agent_id", agentID,
 		"persistent", persistent,
 	)
 
@@ -364,15 +362,7 @@ func (a *agent) executeJob(ctx context.Context, jobID string) error {
 	}
 
 	// 2. Build Job object
-	ci := a.tokenManager.GetClusterInfo()
-	j := newJob(detail, ClusterInfo{
-		ID:                 ci.ID,
-		Name:               ci.Name,
-		AgentType:          ci.AgentType,
-		Tags:               ci.Tags,
-		AcceptUntaggedJobs: ci.AcceptUntaggedJobs,
-		MaxConcurrentJobs:  ci.MaxConcurrentJobs,
-	})
+	j := newJob(detail)
 	j.(*job).artifactDownloadFn = a.client.GetArtifactPresignedURL
 
 	// 3. Attach job logger + log transport
@@ -631,15 +621,7 @@ func (a *agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 	a.logger.Info("CI job created", "job_id", jobID)
 
 	// Build job from CIContext
-	clusterInfo := a.tokenManager.GetClusterInfo()
-	j := newCIJob(jobID, ci, a.scannerName, params, ClusterInfo{
-		ID:                 clusterInfo.ID,
-		Name:               clusterInfo.Name,
-		AgentType:          clusterInfo.AgentType,
-		Tags:               clusterInfo.Tags,
-		AcceptUntaggedJobs: clusterInfo.AcceptUntaggedJobs,
-		MaxConcurrentJobs:  clusterInfo.MaxConcurrentJobs,
-	})
+	j := newCIJob(jobID, ci, a.scannerName, params)
 
 	// Attach job logger + log transport
 	ciJobLogger, ciBufHandler := newJobLogger(jobID, a.scannerName, a.config.logger)
@@ -693,26 +675,15 @@ func (a *agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 
 // --- Scanner metadata update ---
 
-// updateScannerMetadata calls PATCH /api/agent/scanner to sync scanner config.
-func (a *agent) updateScannerMetadata(ctx context.Context, info auth.RegisteredScannerInfo) {
-	update := a.buildScannerUpdate(info)
-	if update == nil {
-		return
-	}
-	if err := a.client.UpdateScanner(ctx, *update); err != nil {
-		a.logger.Warn("failed to update scanner metadata", "error", err)
-	} else {
-		a.logger.Info("scanner metadata updated")
-	}
-}
-
-func (a *agent) buildScannerUpdate(info auth.RegisteredScannerInfo) *api.UpdateAgentScannerRequest {
+// syncScannerMetadata calls PATCH /api/agent/scanner to sync scanner config
+// using the scanner's own metadata (name, asset types, params, etc.).
+func (a *agent) syncScannerMetadata(ctx context.Context) {
+	name := a.scanner.Name()
+	req := api.UpdateAgentScannerRequest{Name: &name}
 	var needsUpdate bool
-	req := api.UpdateAgentScannerRequest{Name: &info.Name}
 
 	if dn, ok := a.scanner.(interface{ DisplayName() string }); ok {
-		displayName := dn.DisplayName()
-		if displayName != "" && displayName != info.DisplayName {
+		if displayName := dn.DisplayName(); displayName != "" {
 			req.DisplayName = &displayName
 			needsUpdate = true
 		}
@@ -743,9 +714,13 @@ func (a *agent) buildScannerUpdate(info auth.RegisteredScannerInfo) *api.UpdateA
 	}
 
 	if !needsUpdate {
-		return nil
+		return
 	}
-	return &req
+	if err := a.client.UpdateScanner(ctx, req); err != nil {
+		a.logger.Warn("failed to sync scanner metadata", "error", err)
+	} else {
+		a.logger.Info("scanner metadata synced")
+	}
 }
 
 // --- Worker pool job wrapper ---
@@ -793,5 +768,12 @@ func resolveParamsFromEnv(params []Param, ciParams map[string]interface{}) map[s
 		}
 	}
 	return resolved
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 

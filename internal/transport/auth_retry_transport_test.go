@@ -39,8 +39,8 @@ func TestAuthRetryTransport_401_RefreshesAndRetries(t *testing.T) {
 	tm.SetGenerateTokenFunc(func(ctx context.Context, req auth.GenerateTokenRequest) (*auth.GenerateTokenResponse, error) {
 		generateCalled.Add(1)
 		return &auth.GenerateTokenResponse{
-			AgentID: "agent-123",
-			Token:   "fresh-token",
+			AgentId: strPtr("agent-123"),
+			Token:   strPtr("fresh-token"),
 		}, nil
 	})
 
@@ -162,7 +162,7 @@ func TestAuthRetryTransport_401_RetryWithBody(t *testing.T) {
 	tm.SetToken("expired-token")
 
 	tm.SetGenerateTokenFunc(func(ctx context.Context, req auth.GenerateTokenRequest) (*auth.GenerateTokenResponse, error) {
-		return &auth.GenerateTokenResponse{Token: "fresh-token", AgentID: "agent-1"}, nil
+		return &auth.GenerateTokenResponse{Token: strPtr("fresh-token"), AgentId: strPtr("agent-1")}, nil
 	})
 
 	var capturedBodies []string
