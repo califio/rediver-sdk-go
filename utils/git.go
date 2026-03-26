@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,21 +43,70 @@ func GitCheckout(ctx context.Context, opts CheckoutOptions) error {
 	}
 
 	// Fetch refs
-	GitFetch(ctx, opts.WorkDir, opts.Refs...)
+	if err := GitFetch(ctx, opts.WorkDir, opts.Refs...); err != nil {
+		return err
+	}
 
 	// Checkout
-	_, err := Exec(ctx, "git", []string{"checkout", "--force", opts.CheckoutRef}, WithWorkDir(opts.WorkDir))
-	return err
+	var stderrLines []string
+	_, err := Exec(ctx, "git", []string{"checkout", "--force", opts.CheckoutRef},
+		WithWorkDir(opts.WorkDir),
+		WithStderr(func(line string) { stderrLines = append(stderrLines, line) }),
+	)
+	if err != nil {
+		detail := strings.Join(stderrLines, "; ")
+		if detail != "" {
+			return fmt.Errorf("git checkout: %s", detail)
+		}
+		return err
+	}
+	return nil
 }
 
-// GitFetch fetches specific refs from origin.
-func GitFetch(ctx context.Context, repoPath string, refs ...string) {
+// GitFetch fetches specific refs from origin. Returns first error encountered.
+func GitFetch(ctx context.Context, repoPath string, refs ...string) error {
 	baseArgs := []string{"-c", "protocol.version=2", "fetch", "--depth=1", "--prune", "--no-recurse-submodules", "--no-tags", "origin"}
 
 	for _, ref := range refs {
 		args := append(baseArgs, ref)
-		_, _ = Exec(ctx, "git", args, WithWorkDir(repoPath))
+		var stderrLines []string
+		_, err := Exec(ctx, "git", args,
+			WithWorkDir(repoPath),
+			WithStderr(func(line string) { stderrLines = append(stderrLines, line) }),
+		)
+		if err != nil {
+			detail := strings.Join(stderrLines, "; ")
+			if detail != "" {
+				return fmt.Errorf("git fetch %s: %s", ref, detail)
+			}
+			return fmt.Errorf("git fetch %s: %w", ref, err)
+		}
 	}
+	return nil
+}
+
+// EnsureMergeBaseReachable deepens a shallow clone until git merge-base
+// succeeds between baseCommit and HEAD. This is needed because --depth=1
+// fetches commit objects but doesn't connect them in the commit graph.
+// Deepens progressively (50 → 200) to avoid fetching full history.
+func EnsureMergeBaseReachable(ctx context.Context, repoPath, baseCommit string) {
+	mergeBaseOK := func() bool {
+		_, err := GitMergeBase(ctx, repoPath, baseCommit, "HEAD")
+		return err == nil
+	}
+
+	if mergeBaseOK() {
+		return
+	}
+
+	for _, depth := range []string{"10", "20", "50", "100"} {
+		Exec(ctx, "git", []string{"fetch", "--deepen=" + depth, "origin"}, WithWorkDir(repoPath))
+		if mergeBaseOK() {
+			return
+		}
+	}
+	// If still not reachable after 250 extra commits, scanners should
+	// fall back to full scan (no baseline). Don't unshallow — too expensive.
 }
 
 // GitMergeBase finds the common ancestor of two commits.

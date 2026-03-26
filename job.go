@@ -479,6 +479,15 @@ func (j *job) prepareRepository(ctx context.Context) error {
 	j.repoDir = workDir
 	j.clonedRepoDir = workDir // track for cleanup
 
+	// Shallow clones (--depth=1) may not connect HEAD to BaseCommitSHA in the
+	// commit graph. Deepen progressively until merge-base is reachable so that
+	// scanners can compute diffs. Caps at 200 extra commits to avoid fetching
+	// full history on large repos — if still unreachable, scanners fall back to
+	// full scan.
+	if repo.BaseCommitSHA != "" {
+		utils.EnsureMergeBaseReachable(ctx, workDir, repo.BaseCommitSHA)
+	}
+
 	// For MR/PR: always resolve base commit from target branch via merge-base.
 	// More reliable than server-provided BaseCommitSHA (oldrev) because:
 	// 1. MR create: server sends empty BaseCommitSHA
