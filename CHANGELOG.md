@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-03-26
+
+### Fixed
+- Missing repository context in job logs — now logs URL, branch, commit, base_commit, event, and artifact_id before prepare
+
 ## [1.2.1] - 2026-03-26
 
 ### Fixed
