@@ -388,7 +388,18 @@ func (a *agent) executeJob(ctx context.Context, jobID string) error {
 	a.reportJobStarted(ctx, jobID)
 
 	// 5. Prepare repository if needed
-	if _, hasRepo := j.Repository(); hasRepo {
+	if repo, hasRepo := j.Repository(); hasRepo {
+		attrs := []any{
+			"url", repo.URL,
+			"branch", repo.Branch,
+			"commit", repo.CommitSHA,
+			"base_commit", repo.BaseCommitSHA,
+			"event", repo.Event,
+		}
+		if repo.ArtifactID != "" {
+			attrs = append(attrs, "artifact_id", repo.ArtifactID)
+		}
+		jobLogger.Info("preparing repository", attrs...)
 		if err := j.(*job).prepareRepository(ctx); err != nil {
 			a.reportJobFailed(ctx, jobID, fmt.Sprintf("prepare repo: %v", err))
 			cancelLog()
