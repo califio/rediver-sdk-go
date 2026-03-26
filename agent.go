@@ -169,16 +169,25 @@ func (a *agent) run(ctx context.Context) error {
 }
 
 // runOnce runs Task mode: poll one job, execute it, revoke token, return.
+// If config.directJobID is set, skip polling and execute that job directly.
 func (a *agent) runOnce(ctx context.Context) error {
-	jobID, _, err := a.pullJob(ctx)
-	if errors.Is(err, ErrNoJobAvailable) {
-		a.logger.Info("no job available, exiting")
-		_ = a.tokenManager.RevokeToken(ctx)
-		return nil
-	}
-	if err != nil {
-		_ = a.tokenManager.RevokeToken(ctx)
-		return err
+	var jobID string
+	if a.config.directJobID != "" {
+		// Direct mode: skip poll, execute the specified job.
+		jobID = a.config.directJobID
+		a.logger.Info("direct job execution", "job_id", jobID)
+	} else {
+		var err error
+		jobID, _, err = a.pullJob(ctx)
+		if errors.Is(err, ErrNoJobAvailable) {
+			a.logger.Info("no job available, exiting")
+			_ = a.tokenManager.RevokeToken(ctx)
+			return nil
+		}
+		if err != nil {
+			_ = a.tokenManager.RevokeToken(ctx)
+			return err
+		}
 	}
 
 	execErr := a.executeJob(ctx, jobID)

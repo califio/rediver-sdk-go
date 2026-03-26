@@ -37,6 +37,7 @@ type runnerConfig struct {
 	shutdownTimeout time.Duration
 	repoDir         string // override repository directory for CI mode
 	jobHandler      JobHandler
+	directJobID     string // if set, skip poll and execute this job directly (RunDirect)
 }
 
 func defaultAgentConfig() *runnerConfig {

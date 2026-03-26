@@ -117,8 +117,12 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 // RunOnce sets Task mode and calls Run. Each scanner polls once, executes a job, revokes token, exits.
-func (r *Runner) RunOnce(ctx context.Context) error {
+// If jobID is provided, skip polling and execute that job directly.
+func (r *Runner) RunOnce(ctx context.Context, jobID ...string) error {
 	r.config.runMode = RunModeTask
+	if len(jobID) > 0 && jobID[0] != "" {
+		r.config.directJobID = jobID[0]
+	}
 	return r.Run(ctx)
 }
 
@@ -259,7 +263,14 @@ func (a *Agent) Register(scanners ...Scanner) error {
 
 // Run starts the agent lifecycle based on configured run mode.
 // Deprecated: Use Runner.Run instead.
-func (a *Agent) Run(ctx context.Context, _ ...RunOption) error {
+func (a *Agent) Run(ctx context.Context, opts ...RunOption) error {
+	cfg := &runConfig{}
+	for _, o := range opts {
+		o(cfg)
+	}
+	if cfg.jobID != "" {
+		return a.runner.RunOnce(ctx, cfg.jobID)
+	}
 	return a.runner.Run(ctx)
 }
 
