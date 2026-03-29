@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-03-30
+
+### Fixed
+- Fallback to branch checkout when CommitSHA is empty — asset-synced refs without commit info now fetch and checkout `origin/<branch>` instead of failing with `git checkout ""`
+
+### Tests
+- `buildRefSpecs` empty CommitSHA with branch fallback (2 cases)
+
 ## [1.2.5] - 2026-03-26
 
 ### Changed
