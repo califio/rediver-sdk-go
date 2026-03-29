@@ -658,6 +658,48 @@ func TestBuildRefSpecs_Empty(t *testing.T) {
 	}
 }
 
+func TestBuildRefSpecs_EmptyCommitSHA_FallbackToBranch(t *testing.T) {
+	repo := &Repository{
+		Event:     "manual",
+		Branch:    "main",
+		CommitSHA: "", // empty — asset sync didn't populate
+	}
+	refs, checkout := buildRefSpecs(repo)
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 ref (branch), got %v", refs)
+	}
+	if refs[0] != "+refs/heads/main:refs/remotes/origin/main" {
+		t.Errorf("expected branch refspec, got %q", refs[0])
+	}
+	if checkout != "origin/main" {
+		t.Errorf("expected branch checkout fallback, got %q", checkout)
+	}
+}
+
+func TestBuildRefSpecs_Push_EmptyCommitSHA_WithBranch(t *testing.T) {
+	repo := &Repository{
+		Event:     "push",
+		Branch:    "develop",
+		CommitSHA: "",
+		Ref:       "refs/heads/develop",
+	}
+	refs, checkout := buildRefSpecs(repo)
+	// Branch should be in refs from the default case (line 521-523)
+	found := false
+	for _, r := range refs {
+		if r == "+refs/heads/develop:refs/remotes/origin/develop" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected branch refspec, got %v", refs)
+	}
+	// checkoutRef should fallback to branch
+	if checkout != "origin/develop" {
+		t.Errorf("expected branch checkout fallback, got %q", checkout)
+	}
+}
+
 // --- buildMrPrRefSpecs per provider ---
 
 func TestBuildMrPrRefSpecs_Bitbucket(t *testing.T) {

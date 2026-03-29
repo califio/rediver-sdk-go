@@ -528,12 +528,21 @@ func buildRefSpecs(repo *Repository) (refs []string, checkoutRef string) {
 		checkoutRef = repo.CommitSHA
 	}
 
-	// Fallback
-	if len(refs) == 0 && repo.CommitSHA != "" {
-		refs = append(refs, repo.CommitSHA)
+	// Fallback: if no refs collected, try CommitSHA then branch
+	if len(refs) == 0 {
+		if repo.CommitSHA != "" {
+			refs = append(refs, repo.CommitSHA)
+		} else if repo.Branch != "" {
+			refs = append(refs, fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", repo.Branch, repo.Branch))
+		}
 	}
+	// Fallback checkout: try CommitSHA, then branch remote ref
 	if checkoutRef == "" {
-		checkoutRef = repo.CommitSHA
+		if repo.CommitSHA != "" {
+			checkoutRef = repo.CommitSHA
+		} else if repo.Branch != "" {
+			checkoutRef = "origin/" + repo.Branch
+		}
 	}
 
 	return refs, checkoutRef
