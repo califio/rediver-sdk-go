@@ -109,6 +109,19 @@ func EnsureMergeBaseReachable(ctx context.Context, repoPath, baseCommit string) 
 	// fall back to full scan (no baseline). Don't unshallow — too expensive.
 }
 
+// GitRevParseHead returns the SHA of HEAD in the given repo directory.
+func GitRevParseHead(ctx context.Context, repoPath string) (string, error) {
+	var lines []string
+	_, err := Exec(ctx, "git", []string{"rev-parse", "HEAD"},
+		WithWorkDir(repoPath),
+		WithStdout(func(line string) { lines = append(lines, line) }),
+	)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(strings.Join(lines, "")), nil
+}
+
 // GitMergeBase finds the common ancestor of two commits.
 // Returns the merge-base SHA, or empty string + error if not found.
 func GitMergeBase(ctx context.Context, repoPath, ref1, ref2 string) (string, error) {

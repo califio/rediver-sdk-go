@@ -423,8 +423,13 @@ func (a *agent) executeJob(ctx context.Context, jobID string) error {
 	go a.jobHeartbeatLoop(hbCtx, jobID)
 
 	// 7. Execute scanner
+	// Capture resolved HEAD SHA for populating per-finding CommitSha
+	var resolvedHeadSHA string
+	if jImpl, ok := j.(*job); ok {
+		resolvedHeadSHA = jImpl.resolvedHeadSHA
+	}
 	scanErr := a.scanner.Scan(ctx, j, func(res Result) {
-		a.importResult(ctx, jobID, res)
+		a.importResult(ctx, jobID, res, resolvedHeadSHA)
 	})
 
 	// 8. Report final status
@@ -499,7 +504,7 @@ func (a *agent) jobHeartbeatLoop(ctx context.Context, jobID string) {
 
 // --- Import results ---
 
-func (a *agent) importResult(ctx context.Context, jobID string, res Result) {
+func (a *agent) importResult(ctx context.Context, jobID string, res Result, headSHA string) {
 	if domains := res.GetDomains(); len(domains) > 0 {
 		a.importDomains(ctx, jobID, domains)
 	}
@@ -510,6 +515,14 @@ func (a *agent) importResult(ctx context.Context, jobID string, res Result) {
 		a.importWebFindings(ctx, jobID, findings)
 	}
 	if findings := res.GetSASTFindings(); len(findings) > 0 {
+		// Populate per-finding CommitSha with resolved HEAD when scanner didn't set it
+		if headSHA != "" {
+			for i := range findings {
+				if findings[i].CommitSha == "" {
+					findings[i].CommitSha = headSHA
+				}
+			}
+		}
 		a.importSASTFindings(ctx, jobID, findings)
 	}
 }
@@ -672,7 +685,7 @@ func (a *agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 	go a.jobHeartbeatLoop(hbCtx, jobID)
 
 	scanErr := a.scanner.Scan(ctx, j, func(res Result) {
-		a.importResult(ctx, jobID, res)
+		a.importResult(ctx, jobID, res, "") // CI mode: CommitSHA always from env vars
 	})
 
 	if scanErr != nil {

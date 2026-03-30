@@ -164,6 +164,7 @@ type job struct {
 	repoDir              string                // prepared repo path (CI dir or cloned temp dir)
 	clonedRepoDir        string                // non-empty only when SDK cloned it → needs cleanup
 	resolvedBaseSHA      string                // resolved via git merge-base when server didn't provide BaseCommitSHA
+	resolvedHeadSHA      string                // resolved via git rev-parse HEAD when server-provided CommitSHA is empty
 	artifactDownloadFn   artifactDownloadFunc  // injected by Agent for artifact-based repos
 }
 
@@ -420,6 +421,10 @@ func (j *job) Repository() (*Repository, bool) {
 			repo.Password = *r.Credential.Password
 		}
 	}
+	// Populate CommitSHA from resolved HEAD if server didn't provide it
+	if repo.CommitSHA == "" && j.resolvedHeadSHA != "" {
+		repo.CommitSHA = j.resolvedHeadSHA
+	}
 	// Populate BaseCommitSHA from resolved merge-base if server didn't provide it
 	if repo.BaseCommitSHA == "" && j.resolvedBaseSHA != "" {
 		repo.BaseCommitSHA = j.resolvedBaseSHA
@@ -486,6 +491,14 @@ func (j *job) prepareRepository(ctx context.Context) error {
 	// full scan.
 	if repo.BaseCommitSHA != "" {
 		utils.EnsureMergeBaseReachable(ctx, workDir, repo.BaseCommitSHA)
+	}
+
+	// Resolve actual HEAD SHA — needed when server-provided CommitSHA is empty
+	// (e.g., manual trigger on connector-synced repo without commit info).
+	if repo.CommitSHA == "" {
+		if sha, err := utils.GitRevParseHead(ctx, workDir); err == nil && sha != "" {
+			j.resolvedHeadSHA = sha
+		}
 	}
 
 	// For MR/PR: always resolve base commit from target branch via merge-base.

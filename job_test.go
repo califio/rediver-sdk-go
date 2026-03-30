@@ -351,6 +351,51 @@ func TestJob_Repository_ResolvedBaseSHA(t *testing.T) {
 	}
 }
 
+func TestJob_Repository_ResolvedHeadSHA(t *testing.T) {
+	repoURL := "https://github.com/org/repo.git"
+	j := &job{
+		detail: &api.JobDetail{
+			Target: &api.JobTarget{
+				Repository: &api.RepositoryJobContext{
+					Url: &repoURL,
+				},
+			},
+		},
+		resolvedHeadSHA: "head-sha-abc",
+	}
+	repo, ok := j.Repository()
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if repo.CommitSHA != "head-sha-abc" {
+		t.Errorf("expected head-sha-abc, got %q", repo.CommitSHA)
+	}
+}
+
+func TestJob_Repository_ResolvedHeadSHA_NoOverride(t *testing.T) {
+	// When server provides CommitSHA, resolvedHeadSHA should NOT override it
+	repoURL := "https://github.com/org/repo.git"
+	serverSHA := "server-sha-123"
+	j := &job{
+		detail: &api.JobDetail{
+			Target: &api.JobTarget{
+				Repository: &api.RepositoryJobContext{
+					Url:       &repoURL,
+					CommitSha: &serverSHA,
+				},
+			},
+		},
+		resolvedHeadSHA: "local-sha-456",
+	}
+	repo, ok := j.Repository()
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if repo.CommitSHA != "server-sha-123" {
+		t.Errorf("expected server-sha-123, got %q", repo.CommitSHA)
+	}
+}
+
 // --- job.Scanner ---
 
 func TestJob_Scanner(t *testing.T) {
