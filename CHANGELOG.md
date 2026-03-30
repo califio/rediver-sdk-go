@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-03-30
+
+### Fixed
+- Resolve HEAD SHA after clone for jobs without CommitSHA — `git rev-parse HEAD` fills CommitSHA when server provides empty value (e.g., manual triggers on connector-synced repos)
+- Per-finding CommitSha now populated with resolved HEAD instead of staying empty
+
+### Added
+- `GitRevParseHead` utility in `utils/git.go`
+
+### Tests
+- `resolvedHeadSHA` population and override behavior
+
 ## [1.2.6] - 2026-03-30
 
 ### Fixed
