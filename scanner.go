@@ -29,12 +29,13 @@ type ScanFunc func(ctx context.Context, job Job, emit func(Result)) error
 
 // scanner is the internal implementation of Scanner.
 type scanner struct {
-	name            string
-	displayName     string // human-readable name, empty = use name
-	params          []Param
-	handler         ScanFunc
-	retestHandler   ScanFunc // optional, for retest jobs
-	assetTypes      []TargetType
+	name          string
+	displayName   string // human-readable name, empty = use name
+	params        []Param
+	paramsSchema  map[string]interface{} // raw JSON schema override for backend metadata sync
+	handler       ScanFunc
+	retestHandler ScanFunc // optional, for retest jobs
+	assetTypes    []TargetType
 }
 
 // NewScanner creates a Scanner from a name, asset types, and handler function.
@@ -64,6 +65,14 @@ func WithParam(param Param) ScannerOption {
 func WithParams(params ...Param) ScannerOption {
 	return func(s *scanner) {
 		s.params = params
+	}
+}
+
+// WithRawParamsSchema sets a raw JSON schema override for scanner params metadata.
+// When set, metadata sync uses this schema instead of deriving one from Params().
+func WithRawParamsSchema(schema map[string]interface{}) ScannerOption {
+	return func(s *scanner) {
+		s.paramsSchema = schema
 	}
 }
 
@@ -98,6 +107,10 @@ func (s *scanner) DisplayName() string {
 
 func (s *scanner) Params() []Param {
 	return s.params
+}
+
+func (s *scanner) ParamsSchema() map[string]interface{} {
+	return s.paramsSchema
 }
 
 func (s *scanner) AssetTypes() []TargetType {

@@ -27,19 +27,19 @@ const (
 // agent is the internal per-scanner agent (unexported).
 // It manages token generation, heartbeat, polling, and job execution for one scanner.
 type agent struct {
-	scanner      Scanner
-	scannerName  string          // scanner name in DB (normalized)
-	agentID      string          // from generate-token response
-	config       *runnerConfig   // shared from Runner (read-only after creation)
-	token        atomic.Value    // stores string — current agent token
+	scanner     Scanner
+	scannerName string        // scanner name in DB (normalized)
+	agentID     string        // from generate-token response
+	config      *runnerConfig // shared from Runner (read-only after creation)
+	token       atomic.Value  // stores string — current agent token
 
-	tokenManager *auth.TokenManager  // per-agent token lifecycle
-	client       *transport.Client   // per-agent HTTP client
-	pool         *worker.Pool        // per-agent worker pool
+	tokenManager *auth.TokenManager // per-agent token lifecycle
+	client       *transport.Client  // per-agent HTTP client
+	pool         *worker.Pool       // per-agent worker pool
 	retrier      *retrier
 	logger       *slog.Logger
 
-	genReq       auth.GenerateTokenRequest // cached for 401 refresh
+	genReq auth.GenerateTokenRequest // cached for 401 refresh
 
 	// drainCtx survives graceful shutdown so in-flight jobs can finish
 	drainCtx    context.Context
@@ -114,7 +114,7 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 
 	a.pool = worker.NewPool(config.maxConcurrency, config.maxConcurrency*2)
 
-	// Sync scanner metadata to backend (Worker mode only — not for Dispatcher/Task/CI)
+	// Sync scanner metadata to backend when the current run mode owns scanner config.
 	if syncMetadata {
 		a.syncScannerMetadata(ctx)
 	}
@@ -722,7 +722,12 @@ func (a *agent) syncScannerMetadata(ctx context.Context) {
 		}
 	}
 
-	if ps := a.scanner.Params(); len(ps) > 0 {
+	if ps, ok := a.scanner.(interface{ ParamsSchema() map[string]interface{} }); ok {
+		if schema := ps.ParamsSchema(); schema != nil {
+			req.ParamsSchema = &schema
+			needsUpdate = true
+		}
+	} else if ps := a.scanner.Params(); len(ps) > 0 {
 		schema := ParamsToJSONSchema(ps)
 		if schema != nil {
 			req.ParamsSchema = &schema
@@ -809,4 +814,3 @@ func derefStr(s *string) string {
 	}
 	return *s
 }
-

@@ -26,18 +26,19 @@ const (
 
 // runnerConfig holds Runner/Agent shared configuration.
 type runnerConfig struct {
-	logger          *slog.Logger
-	httpClient      *http.Client
-	retryPolicy     RetryPolicy
-	runMode         RunMode
-	maxConcurrency  int
-	pollInterval    time.Duration
-	version         string
-	hostname        string
-	shutdownTimeout time.Duration
-	repoDir         string // override repository directory for CI mode
-	jobHandler      JobHandler
-	directJobID     string // if set, skip poll and execute this job directly (RunDirect)
+	logger                 *slog.Logger
+	httpClient             *http.Client
+	retryPolicy            RetryPolicy
+	runMode                RunMode
+	maxConcurrency         int
+	pollInterval           time.Duration
+	version                string
+	hostname               string
+	shutdownTimeout        time.Duration
+	repoDir                string // override repository directory for CI mode
+	jobHandler             JobHandler
+	directJobID            string // if set, skip poll and execute this job directly (RunDirect)
+	syncMetadataDispatcher bool   // allow Dispatcher mode to sync scanner metadata on startup
 }
 
 func defaultAgentConfig() *runnerConfig {
@@ -93,6 +94,14 @@ func WithTaskMode() Option {
 func WithCIMode() Option {
 	return func(c *runnerConfig) {
 		c.runMode = RunModeCI
+	}
+}
+
+// WithDispatcherMetadataSync enables scanner metadata sync when running in Dispatcher mode.
+// Disabled by default because not every dispatcher owns scanner configuration in the backend.
+func WithDispatcherMetadataSync() Option {
+	return func(c *runnerConfig) {
+		c.syncMetadataDispatcher = true
 	}
 }
 

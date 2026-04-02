@@ -209,7 +209,7 @@ func (r *Runner) runCI(ctx context.Context) error {
 
 // runDispatcher creates persistent agents (Dispatcher mode) and runs each in dispatch mode.
 func (r *Runner) runDispatcher(ctx context.Context, handler JobHandler) error {
-	agents, err := r.createAgents(ctx, true, false) // persistent, no sync (dispatcher doesn't own scanner config)
+	agents, err := r.createAgents(ctx, true, r.config.syncMetadataDispatcher)
 	if err != nil {
 		return err
 	}
@@ -226,7 +226,7 @@ func (r *Runner) runDispatcher(ctx context.Context, handler JobHandler) error {
 
 // createAgents generates tokens for all scanners sequentially (fail fast) and returns agents.
 // persistent: save agent token to Agents table (long-running modes)
-// syncMetadata: update scanner config on backend (Worker mode only)
+// syncMetadata: update scanner config on backend on startup
 func (r *Runner) createAgents(ctx context.Context, persistent, syncMetadata bool) ([]*agent, error) {
 	agents := make([]*agent, 0, len(r.scanners))
 	for _, s := range r.scanners {

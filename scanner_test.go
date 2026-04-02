@@ -102,6 +102,28 @@ func TestNewScanner_WithParams_OverridesWithParam(t *testing.T) {
 	}
 }
 
+func TestNewScanner_WithRawParamsSchema(t *testing.T) {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"audit_mode": map[string]interface{}{"type": "string"},
+		},
+	}
+
+	s := NewScanner("test", nil, func(ctx context.Context, job Job, emit func(Result)) error {
+		return nil
+	}, WithRawParamsSchema(schema))
+
+	internal := s.(*scanner)
+	if internal.ParamsSchema() == nil {
+		t.Fatal("expected params schema to be set")
+	}
+	props := internal.ParamsSchema()["properties"].(map[string]interface{})
+	if _, ok := props["audit_mode"]; !ok {
+		t.Error("expected audit_mode property in params schema")
+	}
+}
+
 // --- WithDisplayName ---
 
 func TestNewScanner_WithDisplayName(t *testing.T) {

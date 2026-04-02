@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-04-02
+
+### Added
+- `WithDispatcherMetadataSync()` option to let Dispatcher mode sync scanner metadata on startup when the dispatcher owns scanner config
+- `WithRawParamsSchema(...)` scanner option to send raw `params_schema` JSON to backend metadata sync instead of deriving from `Params()`
+- Dispatcher metadata smoke test covering generate-token, `/api/agent/scanner` PATCH, `X-Token`, `asset_types`, and `params_schema`
+
+### Changed
+- Metadata sync now prefers a scanner-provided raw params schema before falling back to schema generation from typed params
+- Dispatcher mode can opt into metadata sync without changing existing default behavior
+
 ## [1.2.7] - 2026-03-30
 
 ### Fixed

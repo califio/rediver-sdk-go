@@ -60,6 +60,14 @@ func TestWithCIMode(t *testing.T) {
 	}
 }
 
+func TestWithDispatcherMetadataSync(t *testing.T) {
+	cfg := defaultAgentConfig()
+	WithDispatcherMetadataSync()(cfg)
+	if !cfg.syncMetadataDispatcher {
+		t.Error("syncMetadataDispatcher should be true")
+	}
+}
+
 func TestWithMaxConcurrency(t *testing.T) {
 	cfg := defaultAgentConfig()
 
@@ -95,8 +103,6 @@ func TestWithPollInterval(t *testing.T) {
 		t.Errorf("<1s should be ignored, got %v", cfg.pollInterval)
 	}
 }
-
-
 
 func TestWithVersion(t *testing.T) {
 	cfg := defaultAgentConfig()
@@ -253,4 +259,3 @@ func TestMultipleOptions(t *testing.T) {
 		t.Error("hostname not set")
 	}
 }
-
