@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.9] - 2026-04-03
+
+### Fixed
+- Direct task execution now passes `job_id` to `/api/agent/generate-token` when using `RunOnce(ctx, jobID)` so backend can mint a job-scoped token for the requested job
+- Task mode without a direct `jobID` keeps the previous generate-token behavior and does not send `job_id`
+
+### Changed
+- Regenerated the generated API client from backend swagger so `GenerateAgentTokenRequest` includes `job_id`
+
+### Tests
+- Added coverage for direct task generate-token requests with and without `job_id`
+
 ## [1.2.8] - 2026-04-02
 
 ### Added

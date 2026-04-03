@@ -35,11 +35,12 @@ func (m RunMode) String() string {
 // Per-scanner token exchange: cluster token + single scanner → agent token.
 type GenerateTokenRequest struct {
 	ClusterToken string
-	Scanner      string  // single scanner name
-	Persistent   bool    // true=worker, false=task/CI
+	Scanner      string // single scanner name
+	Persistent   bool   // true=worker, false=task/CI
 	Hostname     string
 	IPAddress    string
 	Version      string
+	JobId        *string // nullable; set only for direct task execution
 	AgentId      *string // nullable; set after first generate-token for 401 refresh
 }
 
@@ -119,7 +120,6 @@ func (tm *TokenManager) SetAgentID(id string) {
 	tm.agentID = id
 }
 
-
 // SetGenReq caches the GenerateTokenRequest for 401 refresh in Task/CI modes.
 func (tm *TokenManager) SetGenReq(req GenerateTokenRequest) {
 	tm.genReq = req
@@ -139,7 +139,6 @@ func (tm *TokenManager) ClusterToken() string {
 func (tm *TokenManager) AgentID() string {
 	return tm.agentID
 }
-
 
 // RevokeToken calls POST /api/agent/token/revoke (task/CI mode shutdown).
 func (tm *TokenManager) RevokeToken(ctx context.Context) error {

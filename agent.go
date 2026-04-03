@@ -66,6 +66,9 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 		IPAddress:    utils.GetIPAddress(),
 		Version:      config.version,
 	}
+	if config.runMode == RunModeTask && config.directJobID != "" {
+		genReq.JobId = &config.directJobID
+	}
 
 	// Create token manager (no persister — agent IDs are server-managed)
 	tm := auth.NewTokenManager(clusterToken)

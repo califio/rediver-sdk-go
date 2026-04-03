@@ -145,6 +145,7 @@ func (c *Client) DoGenerateToken(ctx context.Context, req auth.GenerateTokenRequ
 	apiReq := api.GenerateAgentTokenRequest{
 		ClusterToken: req.ClusterToken,
 		AgentId:      req.AgentId,
+		JobId:        req.JobId,
 		Scanner:      strPtr(req.Scanner),
 		Persistent:   &persistent,
 		Hostname:     strPtr(req.Hostname),

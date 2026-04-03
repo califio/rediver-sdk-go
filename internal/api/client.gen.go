@@ -576,6 +576,7 @@ type GenerateAgentTokenRequest struct {
 	ClusterToken string  `json:"cluster_token"`
 	Hostname     *string `json:"hostname"`
 	IpAddress    *string `json:"ip_address"`
+	JobId        *string `json:"job_id"`
 	Persistent   *bool   `json:"persistent,omitempty"`
 	Scanner      *string `json:"scanner"`
 	Version      *string `json:"version"`
@@ -612,13 +613,14 @@ type GitRefType string
 
 // GitRepo defines model for GitRepo.
 type GitRepo struct {
-	CloneUrl      *string      `json:"clone_url,omitempty"`
-	DefaultBranch *string      `json:"default_branch,omitempty"`
-	HtmlUrl       *string      `json:"html_url,omitempty"`
-	Id            string       `json:"id"`
-	Name          string       `json:"name"`
-	Private       *bool        `json:"private,omitempty"`
-	Provider      *GitProvider `json:"provider,omitempty"`
+	CloneUrl         *string      `json:"clone_url,omitempty"`
+	DefaultBranch    *string      `json:"default_branch,omitempty"`
+	DefaultBranchSha *string      `json:"default_branch_sha"`
+	HtmlUrl          *string      `json:"html_url,omitempty"`
+	Id               string       `json:"id"`
+	Name             string       `json:"name"`
+	Private          *bool        `json:"private,omitempty"`
+	Provider         *GitProvider `json:"provider,omitempty"`
 }
 
 // HttpInfo defines model for HttpInfo.
