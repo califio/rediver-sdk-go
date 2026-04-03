@@ -376,6 +376,7 @@ func (a *agent) executeJob(ctx context.Context, jobID string) error {
 	// 2. Build Job object
 	j := newJob(detail)
 	j.(*job).artifactDownloadFn = a.client.GetArtifactPresignedURL
+	j.(*job).executionToken = a.tokenManager.AgentToken()
 
 	// 3. Attach job logger + log transport
 	scannerName := a.scannerName

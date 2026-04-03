@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.10] - 2026-04-03
+
+### Added
+- `Job.ExecutionToken()` so scanners can read the current execution token snapshot for the running job
+
+### Changed
+- The SDK now attaches the current execution token to each job before invoking the scanner handler
+
+### Tests
+- Added coverage for `Job.ExecutionToken()` on empty and populated jobs
+
 ## [1.2.9] - 2026-04-03
 
 ### Fixed

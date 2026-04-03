@@ -100,6 +100,10 @@ type Job interface {
 	// ID returns the unique job identifier.
 	ID() string
 
+	// ExecutionToken returns the current execution token snapshot for this job.
+	// Scanners can use it for subprocesses that must act as the executing agent.
+	ExecutionToken() string
+
 	// Type returns whether this is a discovery or retest job.
 	Type() JobType
 
@@ -157,15 +161,16 @@ type artifactDownloadFunc func(ctx context.Context, artifactID string) (string, 
 
 // job is the internal implementation of Job.
 type job struct {
-	detail               *api.JobDetail
-	params               map[string]interface{}
-	ciContext            *CIContext            // non-nil = CI mode
-	logger               *slog.Logger          // job-scoped logger (multi-handler: console + buffer)
-	repoDir              string                // prepared repo path (CI dir or cloned temp dir)
-	clonedRepoDir        string                // non-empty only when SDK cloned it → needs cleanup
-	resolvedBaseSHA      string                // resolved via git merge-base when server didn't provide BaseCommitSHA
-	resolvedHeadSHA      string                // resolved via git rev-parse HEAD when server-provided CommitSHA is empty
-	artifactDownloadFn   artifactDownloadFunc  // injected by Agent for artifact-based repos
+	detail             *api.JobDetail
+	params             map[string]interface{}
+	ciContext          *CIContext           // non-nil = CI mode
+	logger             *slog.Logger         // job-scoped logger (multi-handler: console + buffer)
+	executionToken     string               // execution token snapshot for scanner subprocesses
+	repoDir            string               // prepared repo path (CI dir or cloned temp dir)
+	clonedRepoDir      string               // non-empty only when SDK cloned it → needs cleanup
+	resolvedBaseSHA    string               // resolved via git merge-base when server didn't provide BaseCommitSHA
+	resolvedHeadSHA    string               // resolved via git rev-parse HEAD when server-provided CommitSHA is empty
+	artifactDownloadFn artifactDownloadFunc // injected by Agent for artifact-based repos
 }
 
 func newJob(detail *api.JobDetail) Job {
@@ -226,6 +231,10 @@ func (j *job) ID() string {
 		return *j.detail.Id
 	}
 	return ""
+}
+
+func (j *job) ExecutionToken() string {
+	return j.executionToken
 }
 
 func (j *job) Type() JobType {
@@ -810,4 +819,4 @@ type discardHandler struct{}
 func (discardHandler) Enabled(context.Context, slog.Level) bool  { return false }
 func (discardHandler) Handle(context.Context, slog.Record) error { return nil }
 func (d discardHandler) WithAttrs([]slog.Attr) slog.Handler      { return d }
-func (d discardHandler) WithGroup(string) slog.Handler            { return d }
+func (d discardHandler) WithGroup(string) slog.Handler           { return d }

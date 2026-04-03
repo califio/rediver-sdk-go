@@ -33,6 +33,9 @@ func TestNewJob_NilDetail(t *testing.T) {
 	if j.ID() != "" {
 		t.Errorf("nil detail should return empty ID, got %q", j.ID())
 	}
+	if j.ExecutionToken() != "" {
+		t.Errorf("nil detail should return empty execution token, got %q", j.ExecutionToken())
+	}
 	if j.Type() != JobTypeDiscovery {
 		t.Errorf("nil detail should default to discovery, got %v", j.Type())
 	}
@@ -61,6 +64,14 @@ func TestJob_ID_NilId(t *testing.T) {
 	j := newJob(&api.JobDetail{})
 	if j.ID() != "" {
 		t.Errorf("nil Id should return empty, got %q", j.ID())
+	}
+}
+
+func TestJob_ExecutionToken(t *testing.T) {
+	j := newJob(&api.JobDetail{}).(*job)
+	j.executionToken = "agent-token-123"
+	if got := j.ExecutionToken(); got != "agent-token-123" {
+		t.Fatalf("ExecutionToken() = %q, want agent-token-123", got)
 	}
 }
 
@@ -451,7 +462,6 @@ func TestJob_Logger_Nil(t *testing.T) {
 	// Should not panic when logging
 	logger.Info("test message")
 }
-
 
 // --- job.Integration ---
 
