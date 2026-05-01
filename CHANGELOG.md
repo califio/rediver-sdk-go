@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-01
+
+### Changed
+- **Breaking (internal):** Replaced oapi-codegen REST client with Connect-protocol service clients distributed via the Buf Schema Registry (`buf.build/rediver/api`). The public SDK API surface (`NewAgent`, `NewScanner`, `NewRunner`, all option functions, `Job`, `Scanner`, `Result`, etc.) is **unchanged**.
+- `internal/transport.Client` now wraps Connect service clients (`TokenService`, `AgentService`, `JobService`, `ArtifactService`, `FindingService`, `AssetService`) instead of the oapi-codegen HTTP client.
+- All enum types (`Severity`, `TargetType`, `GitProvider`) are now independent string types with internal conversion to proto enums; no longer type aliases of the generated REST client types.
+
+### Removed
+- `internal/api/client.gen.go` (5 889-line oapi-codegen-generated file) and `oapi-codegen.yaml`.
+- `github.com/deepmap/oapi-codegen` and all related transitive dependencies removed from `go.mod`.
+
+### Added
+- `internal/connectclient` — lightweight wrapper constructing all Connect service clients from a shared base URL and auth transport.
+- `internal/transport.authRetryTransport` — single-flight 401 refresh via `TokenManager` without requiring REST client.
+- Direct dependencies: `connectrpc.com/connect`, `buf.build/gen/go/rediver/api/connectrpc/go`, `buf.build/gen/go/rediver/api/protocolbuffers/go`, `google.golang.org/protobuf`.
+
+### Tests
+- `agent_generate_token_test.go` and `dispatcher_metadata_smoke_test.go` rewritten to run an in-process Connect httptest server instead of a plain HTTP server with REST JSON handlers.
+
 ## [1.2.10] - 2026-04-03
 
 ### Added
