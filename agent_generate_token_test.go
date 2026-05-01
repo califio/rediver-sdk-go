@@ -2,107 +2,114 @@ package rediver
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	"buf.build/gen/go/rediver/api/connectrpc/go/agent/v1/agentv1connect"
+	"connectrpc.com/connect"
 )
+
+// --- minimal Connect service implementations for test ---
+
+// testTokenService is a minimal TokenServiceHandler that captures the last request.
+type testTokenService struct {
+	agentv1connect.UnimplementedTokenServiceHandler
+	agentID string
+	token   string
+	lastReq *agentv1.GenerateTokenRequest
+}
+
+func (s *testTokenService) GenerateToken(_ context.Context, req *connect.Request[agentv1.GenerateTokenRequest]) (*connect.Response[agentv1.GenerateTokenResponse], error) {
+	s.lastReq = req.Msg
+	return connect.NewResponse(&agentv1.GenerateTokenResponse{
+		AgentId: s.agentID,
+		Token:   s.token,
+	}), nil
+}
+
+// newTestConnectServer mounts only the services used by newAgent/newRunner init:
+// TokenService (for GenerateToken). Returns the server URL and a reference to
+// testTokenService so tests can inspect captured requests.
+func newTestConnectServer(t *testing.T, svc *testTokenService) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	path, handler := agentv1connect.NewTokenServiceHandler(svc)
+	mux.Handle(path, handler)
+	// AgentService Heartbeat / UpdateScanner — not called during init; mount
+	// an unimplemented handler so the mux doesn't 404.
+	mux.Handle(agentv1connect.NewAgentServiceHandler(&agentv1connect.UnimplementedAgentServiceHandler{}))
+	mux.Handle(agentv1connect.NewJobServiceHandler(&agentv1connect.UnimplementedJobServiceHandler{}))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
 
 func TestNewAgent_TaskDirectJobIncludesJobIdInGenerateToken(t *testing.T) {
 	t.Parallel()
 
-	type tokenRequest struct {
-		Scanner    string  `json:"scanner"`
-		Persistent bool    `json:"persistent"`
-		JobId      *string `json:"job_id"`
-	}
-
-	var got tokenRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/api/agent/generate-token" {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-		}
-		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"agent_id": "agent-1",
-			"token":    "agent-token-1",
-		})
-	}))
-	defer server.Close()
+	svc := &testTokenService{agentID: "agent-1", token: "agent-token-1"}
+	serverURL := newTestConnectServer(t, svc)
 
 	cfg := defaultAgentConfig()
 	cfg.runMode = RunModeTask
 	cfg.directJobID = "job-123"
 
 	scanner := NewScanner("calif-audit", []TargetType{TargetTypeRepository}, nil)
-	agent, err := newAgent(context.Background(), scanner, "cluster-token", server.URL, false, false, cfg)
+	agent, err := newAgent(context.Background(), scanner, "cluster-token", serverURL, false, false, cfg)
 	if err != nil {
 		t.Fatalf("newAgent() error = %v", err)
 	}
-
 	if agent == nil {
 		t.Fatal("expected agent to be created")
 	}
-	if got.Scanner != "calif-audit" {
-		t.Fatalf("scanner = %q, want calif-audit", got.Scanner)
+
+	req := svc.lastReq
+	if req == nil {
+		t.Fatal("GenerateToken was never called")
 	}
-	if got.Persistent {
-		t.Fatal("expected task token request to be ephemeral")
+	if req.GetScanner() != "calif-audit" {
+		t.Fatalf("scanner = %q, want calif-audit", req.GetScanner())
 	}
-	if got.JobId == nil || *got.JobId != "job-123" {
-		t.Fatalf("job_id = %v, want job-123", got.JobId)
+	if req.GetPersistent() {
+		t.Fatal("expected task token request to be ephemeral (persistent=false)")
+	}
+	if req.JobId == nil || *req.JobId != "job-123" {
+		t.Fatalf("job_id = %v, want job-123", req.JobId)
 	}
 }
 
 func TestNewAgent_TaskPollDoesNotIncludeJobIdInGenerateToken(t *testing.T) {
 	t.Parallel()
 
-	type tokenRequest struct {
-		Scanner    string  `json:"scanner"`
-		Persistent bool    `json:"persistent"`
-		JobId      *string `json:"job_id"`
-	}
-
-	var got tokenRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/api/agent/generate-token" {
-			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
-		}
-		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"agent_id": "agent-1",
-			"token":    "agent-token-1",
-		})
-	}))
-	defer server.Close()
+	svc := &testTokenService{agentID: "agent-1", token: "agent-token-1"}
+	serverURL := newTestConnectServer(t, svc)
 
 	cfg := defaultAgentConfig()
 	cfg.runMode = RunModeTask
+	// directJobID deliberately omitted
 
 	scanner := NewScanner("calif-audit", []TargetType{TargetTypeRepository}, nil)
-	agent, err := newAgent(context.Background(), scanner, "cluster-token", server.URL, false, false, cfg)
+	agent, err := newAgent(context.Background(), scanner, "cluster-token", serverURL, false, false, cfg)
 	if err != nil {
 		t.Fatalf("newAgent() error = %v", err)
 	}
-
 	if agent == nil {
 		t.Fatal("expected agent to be created")
 	}
-	if got.Scanner != "calif-audit" {
-		t.Fatalf("scanner = %q, want calif-audit", got.Scanner)
+
+	req := svc.lastReq
+	if req == nil {
+		t.Fatal("GenerateToken was never called")
 	}
-	if got.Persistent {
-		t.Fatal("expected task token request to be ephemeral")
+	if req.GetScanner() != "calif-audit" {
+		t.Fatalf("scanner = %q, want calif-audit", req.GetScanner())
 	}
-	if got.JobId != nil {
-		t.Fatalf("job_id = %v, want nil", *got.JobId)
+	if req.GetPersistent() {
+		t.Fatal("expected task token request to be ephemeral (persistent=false)")
+	}
+	if req.JobId != nil {
+		t.Fatalf("job_id = %v, want nil", *req.JobId)
 	}
 }

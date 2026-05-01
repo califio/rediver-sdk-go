@@ -520,17 +520,9 @@ Complete working examples in the [examples/](examples/) directory:
 | `REDIVER_RUN_MODE` | Run mode: `worker`, `task` (default), or `ci` |
 | `REDIVER_JOB_ID` | Specific job ID for direct execution |
 
-## API Client Generation
+## API Client
 
-The SDK uses [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen) to generate the API client from the backend OpenAPI spec. **Do not edit `pkg/api/client.gen.go` manually.**
-
-```bash
-# Install oapi-codegen
-go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@latest
-
-# Regenerate client (requires backend running at localhost:5152)
-oapi-codegen -config oapi-codegen.yaml http://localhost:5152/swagger/sdk/swagger.json
-```
+The SDK communicates with the Rediver server using the [Connect protocol](https://connectrpc.com) (HTTP/1.1 and HTTP/2 compatible gRPC alternative). Service clients are generated from the Rediver proto definitions published on the [Buf Schema Registry](https://buf.build/rediver/api) and are consumed as Go module dependencies — no local code generation is required.
 
 ## License
 

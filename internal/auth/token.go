@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-
-	"github.com/califio/rediver-sdk-go/internal/api"
 )
 
 // RunMode determines the agent execution mode.
@@ -31,7 +29,7 @@ func (m RunMode) String() string {
 	}
 }
 
-// GenerateTokenRequest is the data sent to POST /api/agent/generate-token.
+// GenerateTokenRequest is the data sent to the GenerateToken RPC.
 // Per-scanner token exchange: cluster token + single scanner → agent token.
 type GenerateTokenRequest struct {
 	ClusterToken string
@@ -44,14 +42,14 @@ type GenerateTokenRequest struct {
 	AgentId      *string // nullable; set after first generate-token for 401 refresh
 }
 
-// GenerateTokenResponse aliases the generated API result type.
-type GenerateTokenResponse = api.GenerateAgentTokenResult
+// GenerateTokenResponse holds the result of a generate-token call.
+type GenerateTokenResponse struct {
+	AgentId *string
+	Token   *string
+}
 
 // GenerateTokenFunc is the function that performs per-scanner token exchange.
 type GenerateTokenFunc func(ctx context.Context, req GenerateTokenRequest) (*GenerateTokenResponse, error)
-
-// HeartbeatPingFunc is the function that sends GET /api/agent/heartbeat (204 response).
-type HeartbeatPingFunc func(ctx context.Context) error
 
 // RevokeFunc is the function that revokes the agent token.
 type RevokeFunc func(ctx context.Context, token string) error
@@ -69,7 +67,6 @@ type TokenManager struct {
 }
 
 // NewTokenManager creates a TokenManager for 2-token auth.
-// Simplified: no Persister parameter (agent ID persistence removed).
 func NewTokenManager(clusterToken string) *TokenManager {
 	tm := &TokenManager{
 		clusterToken: clusterToken,
@@ -140,7 +137,7 @@ func (tm *TokenManager) AgentID() string {
 	return tm.agentID
 }
 
-// RevokeToken calls POST /api/agent/token/revoke (task/CI mode shutdown).
+// RevokeToken calls the revoke endpoint (task/CI mode shutdown).
 func (tm *TokenManager) RevokeToken(ctx context.Context) error {
 	if tm.revokeFn == nil {
 		return nil

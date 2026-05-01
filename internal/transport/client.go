@@ -1,4 +1,5 @@
-// Package transport provides HTTP client utilities with automatic 401 token refresh.
+// Package transport provides a Connect-protocol client with automatic X-Token
+// injection and 401/Unauthenticated refresh via TokenManager.
 package transport
 
 import (
@@ -9,16 +10,18 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/califio/rediver-sdk-go/internal/api"
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	"connectrpc.com/connect"
+
 	"github.com/califio/rediver-sdk-go/internal/auth"
+	"github.com/califio/rediver-sdk-go/internal/connectclient"
 )
 
-// Client wraps the generated API client with TokenManager integration.
-// 401 retry is handled transparently at the HTTP transport layer.
+// Client wraps the Connect service clients with TokenManager integration.
+// 401/Unauthenticated is retried once after refreshing the agent token.
 type Client struct {
-	*api.ClientWithResponses
+	*connectclient.Clients
 	tokenManager *auth.TokenManager
-	httpClient   *http.Client
 	baseURL      string
 }
 
@@ -28,7 +31,7 @@ func NewClient(baseURL string, tm *auth.TokenManager, httpClient *http.Client) (
 		httpClient = &http.Client{}
 	}
 
-	// Wrap the HTTP client's transport with auth retry middleware
+	// Build base HTTP client with 401-retry transport
 	base := httpClient.Transport
 	if base == nil {
 		base = http.DefaultTransport
@@ -41,18 +44,13 @@ func NewClient(baseURL string, tm *auth.TokenManager, httpClient *http.Client) (
 		},
 	}
 
+	clients := connectclient.New(baseURL, tm.AgentToken, authClient)
+
 	c := &Client{
+		Clients:      clients,
 		tokenManager: tm,
-		httpClient:   authClient,
 		baseURL:      baseURL,
 	}
-
-	// Create API client — token injection handled by authRetryTransport
-	apiClient, err := api.NewClientWithResponses(baseURL, api.WithHTTPClient(authClient))
-	if err != nil {
-		return nil, fmt.Errorf("create api client: %w", err)
-	}
-	c.ClientWithResponses = apiClient
 
 	// Wire callbacks into TokenManager (breaks circular dependency)
 	tm.SetRevokeFunc(c.doRevoke)
@@ -71,7 +69,7 @@ type authRetryTransport struct {
 }
 
 func (t *authRetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Buffer body for potential retry (most SDK requests are small JSON)
+	// Buffer body for potential retry (most SDK requests are small JSON/protobuf)
 	var bodyBytes []byte
 	if req.Body != nil {
 		var err error
@@ -119,124 +117,176 @@ func (t *authRetryTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 // --- API methods ---
 
-// DoPollJob calls GET /api/agent/job/poll and returns (jobID, scanner, error).
-// Returns ("", "", nil) on 204 No Content (no job available).
+// DoPollJob calls PollJob RPC and returns (jobID, scanner, error).
+// Returns ("", "", nil) when no job is available.
 func (c *Client) DoPollJob(ctx context.Context) (string, string, error) {
-	res, err := c.PollJobWithResponse(ctx)
+	resp, err := c.Job.PollJob(ctx, connect.NewRequest(&agentv1.PollJobRequest{}))
 	if err != nil {
-		return "", "", fmt.Errorf("poll-job request: %w", err)
+		return "", "", fmt.Errorf("poll-job: %w", err)
 	}
-	if res.StatusCode() == 204 {
-		return "", "", nil
-	}
-	if res.StatusCode() >= 400 {
-		return "", "", fmt.Errorf("poll-job failed: status %d: %s", res.StatusCode(), string(res.Body))
-	}
-	if res.JSON200 == nil || res.JSON200.JobId == nil {
-		return "", "", nil
-	}
-	return derefStr(res.JSON200.JobId), derefStr(res.JSON200.Scanner), nil
+	msg := resp.Msg
+	jobID := msg.GetJobId()
+	scanner := msg.GetScanner()
+	return jobID, scanner, nil
 }
 
-// DoGenerateToken calls POST /api/agent/generate-token for per-scanner token exchange.
+// DoGenerateToken calls GenerateToken RPC for per-scanner token exchange.
 // This method is also used by authRetryTransport for 401 refresh.
 func (c *Client) DoGenerateToken(ctx context.Context, req auth.GenerateTokenRequest) (*auth.GenerateTokenResponse, error) {
-	persistent := req.Persistent
-	apiReq := api.GenerateAgentTokenRequest{
+	protoReq := &agentv1.GenerateTokenRequest{
 		ClusterToken: req.ClusterToken,
-		AgentId:      req.AgentId,
+		Scanner:      strOptional(req.Scanner),
+		Persistent:   req.Persistent,
+		Hostname:     strOptional(req.Hostname),
+		IpAddress:    strOptional(req.IPAddress),
+		Version:      strOptional(req.Version),
 		JobId:        req.JobId,
-		Scanner:      strPtr(req.Scanner),
-		Persistent:   &persistent,
-		Hostname:     strPtr(req.Hostname),
-		IpAddress:    strPtr(req.IPAddress),
-		Version:      strPtr(req.Version),
+		AgentId:      req.AgentId,
 	}
-	res, err := c.GenerateAgentTokenWithResponse(ctx, apiReq)
+	resp, err := c.Token.GenerateToken(ctx, connect.NewRequest(protoReq))
 	if err != nil {
-		return nil, fmt.Errorf("generate-token request: %w", err)
+		return nil, fmt.Errorf("generate-token: %w", err)
 	}
-	if res.StatusCode() >= 400 {
-		return nil, fmt.Errorf("generate-token failed: status %d: %s", res.StatusCode(), string(res.Body))
-	}
-	if res.JSON200 == nil {
-		return nil, fmt.Errorf("generate-token failed: empty response")
-	}
-	return res.JSON200, nil
+	agentID := resp.Msg.GetAgentId()
+	token := resp.Msg.GetToken()
+	return &auth.GenerateTokenResponse{
+		AgentId: &agentID,
+		Token:   &token,
+	}, nil
 }
 
-// AgentHeartbeat calls GET /api/agent/heartbeat (expects 204).
+// AgentHeartbeat calls AgentService.Heartbeat RPC.
 func (c *Client) AgentHeartbeat(ctx context.Context) error {
-	res, err := c.AgentHeartbeatPingWithResponse(ctx)
+	_, err := c.Agent.Heartbeat(ctx, connect.NewRequest(&agentv1.HeartbeatRequest{}))
 	if err != nil {
 		return fmt.Errorf("agent heartbeat: %w", err)
 	}
-	if res.StatusCode() >= 400 {
-		return fmt.Errorf("agent heartbeat failed: status %d", res.StatusCode())
-	}
 	return nil
 }
 
-// UpdateScanner calls PATCH /api/agent/scanner.
-func (c *Client) UpdateScanner(ctx context.Context, req api.UpdateAgentScannerRequest) error {
-	res, err := c.UpdateAgentScannerWithResponse(ctx, req)
+// UpdateScanner calls AgentService.UpdateScanner RPC.
+func (c *Client) UpdateScanner(ctx context.Context, req *agentv1.UpdateScannerRequest) error {
+	_, err := c.Agent.UpdateScanner(ctx, connect.NewRequest(req))
 	if err != nil {
-		return err
-	}
-	if res.StatusCode() >= 400 {
-		return fmt.Errorf("update scanner failed: status %d: %s", res.StatusCode(), string(res.Body))
+		return fmt.Errorf("update scanner: %w", err)
 	}
 	return nil
 }
 
-// GetArtifactPresignedURL returns a presigned download URL for the given artifact.
+// GetArtifactPresignedURL calls ArtifactService.GetArtifactDownload and returns
+// the presigned download URL for the given artifactID.
 func (c *Client) GetArtifactPresignedURL(ctx context.Context, artifactID string) (string, error) {
-	res, err := c.GetArtifactDownloadWithResponse(ctx, artifactID)
+	resp, err := c.Artifact.GetArtifactDownload(ctx, connect.NewRequest(&agentv1.GetArtifactDownloadRequest{
+		ArtifactId: artifactID,
+	}))
 	if err != nil {
-		return "", fmt.Errorf("artifact download request: %w", err)
+		return "", fmt.Errorf("artifact download: %w", err)
 	}
-	if res.StatusCode() == 410 {
-		return "", fmt.Errorf("artifact expired")
+	return resp.Msg.GetPresignedUrl(), nil
+}
+
+// GetJobDetail calls JobService.GetJobDetail and returns the detail response.
+func (c *Client) GetJobDetail(ctx context.Context, jobID string) (*agentv1.GetJobDetailResponse, error) {
+	resp, err := c.Job.GetJobDetail(ctx, connect.NewRequest(&agentv1.GetJobDetailRequest{
+		JobId: jobID,
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("get job detail: %w", err)
 	}
-	if res.StatusCode() >= 400 {
-		return "", fmt.Errorf("artifact download failed: status %d: %s", res.StatusCode(), string(res.Body))
+	return resp.Msg, nil
+}
+
+// JobStart calls JobService.JobStart.
+func (c *Client) JobStart(ctx context.Context, jobID string) error {
+	_, err := c.Job.JobStart(ctx, connect.NewRequest(&agentv1.JobStartRequest{
+		JobId: jobID,
+	}))
+	return err
+}
+
+// JobCompleted calls JobService.JobCompleted.
+func (c *Client) JobCompleted(ctx context.Context, jobID string) error {
+	_, err := c.Job.JobCompleted(ctx, connect.NewRequest(&agentv1.JobCompletedRequest{
+		JobId: jobID,
+	}))
+	return err
+}
+
+// JobFailed calls JobService.JobFailed.
+func (c *Client) JobFailed(ctx context.Context, jobID, description string) error {
+	req := &agentv1.JobFailedRequest{JobId: jobID}
+	if description != "" {
+		req.Description = &description
 	}
-	if res.JSON200 == nil || res.JSON200.PresignedUrl == nil {
-		return "", fmt.Errorf("artifact download: empty presigned URL in response")
+	_, err := c.Job.JobFailed(ctx, connect.NewRequest(req))
+	return err
+}
+
+// JobHeartbeat calls JobService.JobHeartbeat.
+func (c *Client) JobHeartbeat(ctx context.Context, jobID string) error {
+	_, err := c.Job.JobHeartbeat(ctx, connect.NewRequest(&agentv1.JobHeartbeatRequest{
+		JobId: jobID,
+	}))
+	return err
+}
+
+// PushAssets calls AssetService.PushAssets.
+func (c *Client) PushAssets(ctx context.Context, req *agentv1.PushAssetsRequest) error {
+	_, err := c.Asset.PushAssets(ctx, connect.NewRequest(req))
+	if err != nil {
+		return fmt.Errorf("push assets: %w", err)
 	}
-	return *res.JSON200.PresignedUrl, nil
+	return nil
+}
+
+// PushFindings calls FindingService.PushFindings.
+func (c *Client) PushFindings(ctx context.Context, req *agentv1.PushFindingsRequest) error {
+	_, err := c.Finding.PushFindings(ctx, connect.NewRequest(req))
+	if err != nil {
+		return fmt.Errorf("push findings: %w", err)
+	}
+	return nil
+}
+
+// CreateCiJob calls JobService.CreateCiJob and returns the response.
+func (c *Client) CreateCiJob(ctx context.Context, req *agentv1.CreateCiJobRequest) (*agentv1.CreateCiJobResponse, error) {
+	resp, err := c.Job.CreateCiJob(ctx, connect.NewRequest(req))
+	if err != nil {
+		return nil, fmt.Errorf("create CI job: %w", err)
+	}
+	return resp.Msg, nil
+}
+
+// AppendJobLogs calls JobService.AppendJobLogs.
+func (c *Client) AppendJobLogs(ctx context.Context, req *agentv1.AppendJobLogsRequest) error {
+	_, err := c.Job.AppendJobLogs(ctx, connect.NewRequest(req))
+	if err != nil {
+		return fmt.Errorf("append job logs: %w", err)
+	}
+	return nil
 }
 
 // BaseURL returns the base URL of the API server.
 func (c *Client) BaseURL() string { return c.baseURL }
 
-// HTTPClient returns the underlying HTTP client.
-func (c *Client) HTTPClient() *http.Client { return c.httpClient }
-
-// doRevoke calls POST /api/agent/token/revoke.
+// doRevoke calls TokenService.RevokeToken.
 func (c *Client) doRevoke(ctx context.Context, _ string) error {
-	res, err := c.AgentTokenRevokeWithResponse(ctx)
+	_, err := c.Token.RevokeToken(ctx, connect.NewRequest(&agentv1.RevokeTokenRequest{}))
 	if err != nil {
-		return err
-	}
-	if res.StatusCode() >= 400 {
-		return fmt.Errorf("revoke failed: status %d: %s", res.StatusCode(), string(res.Body))
+		return fmt.Errorf("revoke token: %w", err)
 	}
 	return nil
 }
 
 // --- Helpers ---
 
-func strPtr(s string) *string {
+// strOptional returns a pointer to s if non-empty, otherwise nil.
+func strOptional(s string) *string {
 	if s == "" {
 		return nil
 	}
 	return &s
 }
 
-func derefStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
+// strPtr returns a pointer to s. Used by tests.
+func strPtr(s string) *string { return &s }

@@ -1,60 +1,66 @@
 package rediver
 
 import (
-	"github.com/califio/rediver-sdk-go/internal/api"
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 )
 
-// ciContextToAPIRequest converts a CIContext + scanner info into the generated API request.
-// Uses the CreateCiJobRequest type (maps to POST /api/agent/job/create via CreateJobWithResponse).
-func ciContextToAPIRequest(ci *CIContext, scannerName string) api.CreateCiJobRequest {
-	provider := ci.Provider
-	refType := api.Branch
+// ciContextToProtoRequest converts a CIContext + scanner info into the
+// CreateCiJobRequest proto message (maps to JobService.CreateCiJob RPC).
+func ciContextToProtoRequest(ci *CIContext, scannerName string) *agentv1.CreateCiJobRequest {
+	refType := agentv1.GitRefType_GIT_REF_TYPE_BRANCH
 	switch ci.Ref.Type {
 	case CIRefTypeTag:
-		refType = api.Tag
+		refType = agentv1.GitRefType_GIT_REF_TYPE_TAG
 	case CIRefTypePRMR:
-		refType = api.PRMR
+		refType = agentv1.GitRefType_GIT_REF_TYPE_PR_MR
 	}
 
-	cloneURL := ci.Repo.URL
-	private := ci.Repo.Private
-
-	ref := api.CommitRef{
-		Type:          &refType,
+	ref := &agentv1.CiJobGitRef{
+		Type:          refType,
 		Name:          ci.Ref.Name,
 		HeadCommitSha: ci.Ref.CommitSHA,
-		BaseCommitSha: ci.Ref.BaseCommitSHA,
-		CommitMessage: nilIfEmpty(ci.Ref.CommitMessage),
-		Branch:        ci.Ref.Branch,
-		BaseBranch:    ci.Ref.BaseBranch,
-		IsProtected:   &ci.Ref.IsProtected,
-		IsDefault:     &ci.Ref.IsDefault,
-		PrTitle:       ci.Ref.PRTitle,
-		PrNumber:      ci.Ref.PRNumber,
+		Branch:        strOptionalVal(ci.Ref.Branch),
+		BaseBranch:    strOptionalVal(ci.Ref.BaseBranch),
+		IsProtected:   ci.Ref.IsProtected,
+		IsDefault:     ci.Ref.IsDefault,
+		PrTitle:       strOptionalVal(ci.Ref.PRTitle),
+	}
+	if ci.Ref.BaseCommitSHA != "" {
+		ref.BaseCommitSha = &ci.Ref.BaseCommitSHA
+	}
+	if ci.Ref.CommitMessage != "" {
+		// CommitMessage not in proto — no-op, info only
+		_ = ci.Ref.CommitMessage
 	}
 
-	repo := api.GitRepo{
+	repo := &agentv1.CiJobGitRepo{
 		Id:            ci.Repo.ID,
 		Name:          ci.Repo.Name,
-		CloneUrl:      &cloneURL,
-		HtmlUrl:       nilIfEmpty(ci.Repo.HtmlURL),
-		DefaultBranch: nilIfEmpty(ci.Repo.DefaultBranch),
-		Private:       &private,
-		Provider:      &provider,
+		CloneUrl:      ci.Repo.URL,
+		HtmlUrl:       strOptionalVal(ci.Repo.HtmlURL),
+		DefaultBranch: strOptionalVal(ci.Repo.DefaultBranch),
+		Private:       ci.Repo.Private,
 	}
 
-	return api.CreateCiJobRequest{
+	req := &agentv1.CreateCiJobRequest{
 		Name:     scannerName,
 		Scanner:  scannerName,
-		Provider: &provider,
-		JobUrl:   nilIfEmpty(ci.JobURL),
-		Source:   nilIfEmpty(ci.Source),
-		Ref:      &ref,
-		Repo:     &repo,
+		Provider: toProtoGitProvider(ci.Provider),
+		Ref:      ref,
+		Repo:     repo,
 	}
+	if ci.JobURL != "" {
+		req.JobUrl = &ci.JobURL
+	}
+	if ci.Source != "" {
+		req.Source = &ci.Source
+	}
+
+	return req
 }
 
-func nilIfEmpty(s string) *string {
+// strOptionalVal returns a pointer to s if non-empty, otherwise nil.
+func strOptionalVal(s string) *string {
 	if s == "" {
 		return nil
 	}

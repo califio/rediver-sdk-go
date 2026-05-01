@@ -1,18 +1,32 @@
 package rediver
 
 import (
-	"github.com/califio/rediver-sdk-go/internal/api"
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 )
 
-// GitProvider is a type alias for the generated API GitProvider enum.
-type GitProvider = api.GitProvider
+// GitProvider represents the git hosting provider (public SDK type).
+type GitProvider string
 
 const (
-	GitProviderGitHub    = api.GitProviderGitHub
-	GitProviderGitLab    = api.GitProviderGitLab
-	GitProviderBitbucket = api.GitProviderBitbucket
-	GitProviderUnknown   = api.GitProviderUnknown
+	GitProviderGitHub    GitProvider = "GitHub"
+	GitProviderGitLab    GitProvider = "GitLab"
+	GitProviderBitbucket GitProvider = "Bitbucket"
+	GitProviderUnknown   GitProvider = "Unknown"
 )
+
+// toProtoGitProvider converts a GitProvider string to the proto enum.
+func toProtoGitProvider(p GitProvider) agentv1.GitProvider {
+	switch p {
+	case GitProviderGitHub:
+		return agentv1.GitProvider_GIT_PROVIDER_GITHUB
+	case GitProviderGitLab:
+		return agentv1.GitProvider_GIT_PROVIDER_GITLAB
+	case GitProviderBitbucket:
+		return agentv1.GitProvider_GIT_PROVIDER_BITBUCKET
+	default:
+		return agentv1.GitProvider_GIT_PROVIDER_UNKNOWN
+	}
+}
 
 // CIContext holds all CI environment information needed to create and execute a CI job.
 // Use DetectGitContext() to auto-populate from environment variables, or construct manually.
