@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/califio/rediver-sdk-go/internal/api"
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 )
 
 // --- NewScanner ---
@@ -226,9 +226,8 @@ func TestScanner_Scan_Retest_WithHandler(t *testing.T) {
 		}),
 	)
 
-	// Create a retest job using real api.JobDetail
-	retest := true
-	j := newJob(&api.JobDetail{Retest: &retest})
+	// Create a retest job using proto detail
+	j := newJob(&agentv1.GetJobDetailResponse{Retest: true})
 
 	err := s.Scan(context.Background(), j, func(r Result) {})
 	if err != nil {
@@ -249,8 +248,7 @@ func TestScanner_Scan_Retest_NoHandler_SilentReturn(t *testing.T) {
 		return nil
 	})
 
-	retest := true
-	j := newJob(&api.JobDetail{Retest: &retest})
+	j := newJob(&agentv1.GetJobDetailResponse{Retest: true})
 
 	err := s.Scan(context.Background(), j, func(r Result) {})
 	if err != nil {

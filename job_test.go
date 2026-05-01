@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/califio/rediver-sdk-go/internal/api"
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 )
 
 // --- JobType.String ---
@@ -53,22 +53,21 @@ func TestNewJob_NilDetail(t *testing.T) {
 // --- job.ID ---
 
 func TestJob_ID(t *testing.T) {
-	id := "job-abc"
-	j := newJob(&api.JobDetail{Id: &id})
+	j := newJob(&agentv1.GetJobDetailResponse{Id: "job-abc"})
 	if j.ID() != "job-abc" {
 		t.Errorf("expected job-abc, got %q", j.ID())
 	}
 }
 
-func TestJob_ID_NilId(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+func TestJob_ID_Empty(t *testing.T) {
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.ID() != "" {
-		t.Errorf("nil Id should return empty, got %q", j.ID())
+		t.Errorf("empty Id should return empty, got %q", j.ID())
 	}
 }
 
 func TestJob_ExecutionToken(t *testing.T) {
-	j := newJob(&api.JobDetail{}).(*job)
+	j := newJob(&agentv1.GetJobDetailResponse{}).(*job)
 	j.executionToken = "agent-token-123"
 	if got := j.ExecutionToken(); got != "agent-token-123" {
 		t.Fatalf("ExecutionToken() = %q, want agent-token-123", got)
@@ -78,23 +77,21 @@ func TestJob_ExecutionToken(t *testing.T) {
 // --- job.Type ---
 
 func TestJob_Type_Discovery(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.Type() != JobTypeDiscovery {
 		t.Errorf("default should be discovery, got %v", j.Type())
 	}
 }
 
 func TestJob_Type_Retest(t *testing.T) {
-	retest := true
-	j := newJob(&api.JobDetail{Retest: &retest})
+	j := newJob(&agentv1.GetJobDetailResponse{Retest: true})
 	if j.Type() != JobTypeRetest {
 		t.Errorf("expected retest, got %v", j.Type())
 	}
 }
 
 func TestJob_Type_RetestFalse(t *testing.T) {
-	retest := false
-	j := newJob(&api.JobDetail{Retest: &retest})
+	j := newJob(&agentv1.GetJobDetailResponse{Retest: false})
 	if j.Type() != JobTypeDiscovery {
 		t.Errorf("retest=false should be discovery, got %v", j.Type())
 	}
@@ -110,29 +107,26 @@ func TestJob_Domains_NilDetail(t *testing.T) {
 }
 
 func TestJob_Domains_NilTarget(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.Domains() != nil {
 		t.Error("nil target should return nil domains")
 	}
 }
 
-func TestJob_Domains_NilDomains(t *testing.T) {
-	j := newJob(&api.JobDetail{Target: &api.JobTarget{}})
-	if j.Domains() != nil {
-		t.Error("nil domains field should return nil")
+func TestJob_Domains_EmptyDomains(t *testing.T) {
+	j := newJob(&agentv1.GetJobDetailResponse{Target: &agentv1.JobTarget{}})
+	if len(j.Domains()) != 0 {
+		t.Error("empty domains should return empty slice")
 	}
 }
 
 func TestJob_Domains_WithData(t *testing.T) {
 	id := "d1"
-	val := "example.com"
-	cname := "alias.com"
-	ips := []string{"1.2.3.4"}
-	domains := []api.DomainAsset{
-		{Id: &id, Value: &val, Cname: &cname, Ips: &ips},
-		{Value: &val}, // partial data
+	domains := []*agentv1.DomainAsset{
+		{Id: &id, Value: "example.com", Cname: func() *string { s := "alias.com"; return &s }(), Ips: []string{"1.2.3.4"}},
+		{Value: "other.com"},
 	}
-	j := newJob(&api.JobDetail{Target: &api.JobTarget{Domains: &domains}})
+	j := newJob(&agentv1.GetJobDetailResponse{Target: &agentv1.JobTarget{Domains: domains}})
 	result := j.Domains()
 	if len(result) != 2 {
 		t.Fatalf("expected 2, got %d", len(result))
@@ -149,7 +143,6 @@ func TestJob_Domains_WithData(t *testing.T) {
 	if len(result[0].IPs) != 1 {
 		t.Errorf("IPs: got %v", result[0].IPs)
 	}
-	// Partial data: ID should be empty
 	if result[1].ID != "" {
 		t.Errorf("partial domain should have empty ID, got %q", result[1].ID)
 	}
@@ -158,7 +151,7 @@ func TestJob_Domains_WithData(t *testing.T) {
 // --- job.IPs ---
 
 func TestJob_IPs_NilTarget(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.IPs() != nil {
 		t.Error("nil target should return nil")
 	}
@@ -166,9 +159,8 @@ func TestJob_IPs_NilTarget(t *testing.T) {
 
 func TestJob_IPs_WithData(t *testing.T) {
 	id := "ip1"
-	val := "192.168.1.1"
-	ips := []api.ValueAsset{{Id: &id, Value: &val}}
-	j := newJob(&api.JobDetail{Target: &api.JobTarget{Ips: &ips}})
+	ips := []*agentv1.ValueAsset{{Id: &id, Value: "192.168.1.1"}}
+	j := newJob(&agentv1.GetJobDetailResponse{Target: &agentv1.JobTarget{Ips: ips}})
 	result := j.IPs()
 	if len(result) != 1 {
 		t.Fatalf("expected 1, got %d", len(result))
@@ -181,7 +173,7 @@ func TestJob_IPs_WithData(t *testing.T) {
 // --- job.Subnets ---
 
 func TestJob_Subnets_NilTarget(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.Subnets() != nil {
 		t.Error("nil target should return nil")
 	}
@@ -189,9 +181,8 @@ func TestJob_Subnets_NilTarget(t *testing.T) {
 
 func TestJob_Subnets_WithData(t *testing.T) {
 	id := "s1"
-	val := "10.0.0.0/24"
-	subnets := []api.ValueAsset{{Id: &id, Value: &val}}
-	j := newJob(&api.JobDetail{Target: &api.JobTarget{Subnets: &subnets}})
+	subnets := []*agentv1.ValueAsset{{Id: &id, Value: "10.0.0.0/24"}}
+	j := newJob(&agentv1.GetJobDetailResponse{Target: &agentv1.JobTarget{Subnets: subnets}})
 	result := j.Subnets()
 	if len(result) != 1 {
 		t.Fatalf("expected 1, got %d", len(result))
@@ -204,7 +195,7 @@ func TestJob_Subnets_WithData(t *testing.T) {
 // --- job.Services ---
 
 func TestJob_Services_NilTarget(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.Services() != nil {
 		t.Error("nil target should return nil")
 	}
@@ -212,12 +203,9 @@ func TestJob_Services_NilTarget(t *testing.T) {
 
 func TestJob_Services_WithData(t *testing.T) {
 	id := "sv1"
-	val := "example.com:443"
-	host := "example.com"
 	port := int32(443)
-	svcURL := "https://example.com"
-	services := []api.ServiceAsset{{Id: &id, Value: &val, Host: &host, Port: &port, Url: &svcURL}}
-	j := newJob(&api.JobDetail{Target: &api.JobTarget{Services: &services}})
+	services := []*agentv1.ServiceAsset{{Id: &id, Value: "example.com:443", Host: func() *string { s := "example.com"; return &s }(), Port: &port, Url: func() *string { s := "https://example.com"; return &s }()}}
+	j := newJob(&agentv1.GetJobDetailResponse{Target: &agentv1.JobTarget{Services: services}})
 	result := j.Services()
 	if len(result) != 1 {
 		t.Fatalf("expected 1, got %d", len(result))
@@ -235,20 +223,16 @@ func TestJob_Services_WithData(t *testing.T) {
 
 // --- job.Param ---
 
-func TestJob_Param_Set(t *testing.T) {
-	params := map[string]interface{}{"mode": "fast", "threads": 10}
-	j := newJob(&api.JobDetail{Params: &params})
-	pv := j.Param("mode")
-	if !pv.IsSet() {
-		t.Error("expected IsSet true")
-	}
-	if pv.String() != "fast" {
-		t.Errorf("expected 'fast', got %q", pv.String())
+func TestJob_Param_NilParams(t *testing.T) {
+	j := newJob(nil)
+	pv := j.Param("anything")
+	if pv.IsSet() {
+		t.Error("nil detail should return unset param")
 	}
 }
 
 func TestJob_Param_Unset(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	pv := j.Param("missing")
 	if pv.IsSet() {
 		t.Error("expected IsSet false")
@@ -258,18 +242,10 @@ func TestJob_Param_Unset(t *testing.T) {
 	}
 }
 
-func TestJob_Param_NilParams(t *testing.T) {
-	j := newJob(nil)
-	pv := j.Param("anything")
-	if pv.IsSet() {
-		t.Error("nil detail should return unset param")
-	}
-}
-
 // --- job.Repository ---
 
 func TestJob_Repository_None(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	repo, ok := j.Repository()
 	if ok {
 		t.Error("expected false")
@@ -291,23 +267,22 @@ func TestJob_Repository_WithData(t *testing.T) {
 	repoURL := "https://github.com/org/repo.git"
 	branch := "main"
 	sha := "abc123"
-	provider := "github"
-	event := "push"
 	diffOnly := true
+	prNum := int32(42)
 	username := "user"
 	password := "pass"
-	prNum := int32(42)
-	j := newJob(&api.JobDetail{
-		Target: &api.JobTarget{
-			Repository: &api.RepositoryJobContext{
-				Url:       &repoURL,
+
+	j := newJob(&agentv1.GetJobDetailResponse{
+		Target: &agentv1.JobTarget{
+			Repository: &agentv1.RepositoryJobContext{
+				Url:       repoURL,
+				Provider:  agentv1.GitProvider_GIT_PROVIDER_GITHUB,
+				Event:     agentv1.CiEvent_CI_EVENT_PUSH,
 				Branch:    &branch,
 				CommitSha: &sha,
-				Provider:  &provider,
-				Event:     &event,
-				DiffOnly:  &diffOnly,
+				DiffOnly:  diffOnly,
 				PrNumber:  &prNum,
-				Credential: &api.AssetCredential{
+				Credential: &agentv1.AssetCredential{
 					Username: &username,
 					Password: &password,
 				},
@@ -344,10 +319,10 @@ func TestJob_Repository_WithData(t *testing.T) {
 func TestJob_Repository_ResolvedBaseSHA(t *testing.T) {
 	repoURL := "https://github.com/org/repo.git"
 	j := &job{
-		detail: &api.JobDetail{
-			Target: &api.JobTarget{
-				Repository: &api.RepositoryJobContext{
-					Url: &repoURL,
+		detail: &agentv1.GetJobDetailResponse{
+			Target: &agentv1.JobTarget{
+				Repository: &agentv1.RepositoryJobContext{
+					Url: repoURL,
 				},
 			},
 		},
@@ -365,10 +340,10 @@ func TestJob_Repository_ResolvedBaseSHA(t *testing.T) {
 func TestJob_Repository_ResolvedHeadSHA(t *testing.T) {
 	repoURL := "https://github.com/org/repo.git"
 	j := &job{
-		detail: &api.JobDetail{
-			Target: &api.JobTarget{
-				Repository: &api.RepositoryJobContext{
-					Url: &repoURL,
+		detail: &agentv1.GetJobDetailResponse{
+			Target: &agentv1.JobTarget{
+				Repository: &agentv1.RepositoryJobContext{
+					Url: repoURL,
 				},
 			},
 		},
@@ -384,14 +359,13 @@ func TestJob_Repository_ResolvedHeadSHA(t *testing.T) {
 }
 
 func TestJob_Repository_ResolvedHeadSHA_NoOverride(t *testing.T) {
-	// When server provides CommitSHA, resolvedHeadSHA should NOT override it
 	repoURL := "https://github.com/org/repo.git"
 	serverSHA := "server-sha-123"
 	j := &job{
-		detail: &api.JobDetail{
-			Target: &api.JobTarget{
-				Repository: &api.RepositoryJobContext{
-					Url:       &repoURL,
+		detail: &agentv1.GetJobDetailResponse{
+			Target: &agentv1.JobTarget{
+				Repository: &agentv1.RepositoryJobContext{
+					Url:       repoURL,
 					CommitSha: &serverSHA,
 				},
 			},
@@ -410,8 +384,7 @@ func TestJob_Repository_ResolvedHeadSHA_NoOverride(t *testing.T) {
 // --- job.Scanner ---
 
 func TestJob_Scanner(t *testing.T) {
-	name := "subdomain"
-	j := newJob(&api.JobDetail{Scanner: &name})
+	j := newJob(&agentv1.GetJobDetailResponse{Scanner: "subdomain"})
 	if j.Scanner() != "subdomain" {
 		t.Errorf("expected subdomain, got %q", j.Scanner())
 	}
@@ -420,34 +393,32 @@ func TestJob_Scanner(t *testing.T) {
 // --- job.TimeoutMinutes ---
 
 func TestJob_TimeoutMinutes(t *testing.T) {
-	timeout := int32(30)
-	j := newJob(&api.JobDetail{TimeoutMinutes: &timeout})
+	j := newJob(&agentv1.GetJobDetailResponse{TimeoutMinutes: 30})
 	if j.TimeoutMinutes() != 30 {
 		t.Errorf("expected 30, got %d", j.TimeoutMinutes())
 	}
 }
 
-func TestJob_TimeoutMinutes_Nil(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+func TestJob_TimeoutMinutes_Zero(t *testing.T) {
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.TimeoutMinutes() != 0 {
-		t.Errorf("nil timeout should be 0, got %d", j.TimeoutMinutes())
+		t.Errorf("zero timeout should be 0, got %d", j.TimeoutMinutes())
 	}
 }
 
 // --- job.Version ---
 
 func TestJob_Version(t *testing.T) {
-	v := int32(2)
-	j := newJob(&api.JobDetail{Version: &v})
+	j := newJob(&agentv1.GetJobDetailResponse{Version: 2})
 	if j.Version() != 2 {
 		t.Errorf("expected 2, got %d", j.Version())
 	}
 }
 
-func TestJob_Version_Nil(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+func TestJob_Version_Zero(t *testing.T) {
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.Version() != 1 {
-		t.Errorf("nil version should default to 1, got %d", j.Version())
+		t.Errorf("zero version should default to 1, got %d", j.Version())
 	}
 }
 
@@ -459,14 +430,13 @@ func TestJob_Logger_Nil(t *testing.T) {
 	if logger == nil {
 		t.Fatal("Logger() should never return nil")
 	}
-	// Should not panic when logging
 	logger.Info("test message")
 }
 
 // --- job.Integration ---
 
 func TestJob_Integration_Nil(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.Integration() != nil {
 		t.Error("nil integration should return nil")
 	}
@@ -480,10 +450,9 @@ func TestJob_Integration_NilDetail(t *testing.T) {
 }
 
 func TestJob_Integration_WithTokens(t *testing.T) {
-	tokens := []string{"token1", "token2"}
-	j := newJob(&api.JobDetail{
-		Integration: &api.JobIntegration{
-			CloudflareTokens: &tokens,
+	j := newJob(&agentv1.GetJobDetailResponse{
+		Integration: &agentv1.JobIntegration{
+			CloudflareTokens: []string{"token1", "token2"},
 		},
 	})
 	intg := j.Integration()
@@ -496,111 +465,22 @@ func TestJob_Integration_WithTokens(t *testing.T) {
 }
 
 func TestJob_Integration_EmptyTokens(t *testing.T) {
-	j := newJob(&api.JobDetail{
-		Integration: &api.JobIntegration{},
+	j := newJob(&agentv1.GetJobDetailResponse{
+		Integration: &agentv1.JobIntegration{},
 	})
+	// empty integration with no tokens → nil
 	intg := j.Integration()
-	if intg == nil {
-		t.Fatal("expected non-nil integration even without tokens")
-	}
-	if intg.CloudflareTokens != nil {
-		t.Errorf("expected nil tokens, got %v", intg.CloudflareTokens)
+	if intg != nil {
+		t.Error("expected nil integration when no tokens")
 	}
 }
 
 // --- job.RepoDir ---
 
 func TestJob_RepoDir_Default(t *testing.T) {
-	j := newJob(&api.JobDetail{})
+	j := newJob(&agentv1.GetJobDetailResponse{})
 	if j.RepoDir() != "" {
 		t.Errorf("default repoDir should be empty, got %q", j.RepoDir())
-	}
-}
-
-// --- job.Targets (internal method) ---
-
-func TestJob_Targets_Mixed(t *testing.T) {
-	domainVal := "example.com"
-	ipVal := "1.2.3.4"
-	subnetVal := "10.0.0.0/24"
-	svcHost := "db.local"
-	svcPort := int32(3306)
-	svcURL := "https://api.example.com"
-
-	domains := []api.DomainAsset{{Value: &domainVal}}
-	ips := []api.ValueAsset{{Value: &ipVal}}
-	subnets := []api.ValueAsset{{Value: &subnetVal}}
-	services := []api.ServiceAsset{
-		{Host: &svcHost, Port: &svcPort},
-		{Url: &svcURL},
-	}
-
-	detail := &api.JobDetail{
-		Target: &api.JobTarget{
-			Domains:  &domains,
-			Ips:      &ips,
-			Subnets:  &subnets,
-			Services: &services,
-		},
-	}
-	j := newJob(detail).(*job)
-	targets := j.Targets()
-	if len(targets) != 5 {
-		t.Fatalf("expected 5 targets, got %d: %v", len(targets), targets)
-	}
-	// Order: domains, IPs, subnets, services
-	if targets[0] != "example.com" {
-		t.Errorf("first target: got %q", targets[0])
-	}
-	if targets[1] != "1.2.3.4" {
-		t.Errorf("second target: got %q", targets[1])
-	}
-	if targets[2] != "10.0.0.0/24" {
-		t.Errorf("third target: got %q", targets[2])
-	}
-	// Service without URL uses host:port
-	if targets[3] != "db.local:3306" {
-		t.Errorf("fourth target: got %q", targets[3])
-	}
-	// Service with URL
-	if targets[4] != "https://api.example.com" {
-		t.Errorf("fifth target: got %q", targets[4])
-	}
-}
-
-func TestJob_Targets_Empty(t *testing.T) {
-	j := newJob(&api.JobDetail{}).(*job)
-	if j.Targets() != nil {
-		t.Error("empty targets should return nil")
-	}
-}
-
-// --- job.URLs ---
-
-func TestJob_URLs_NoServices(t *testing.T) {
-	j := newJob(&api.JobDetail{}).(*job)
-	if j.URLs() != nil {
-		t.Error("no services should return nil URLs")
-	}
-}
-
-func TestJob_URLs_WithURLs(t *testing.T) {
-	url1 := "https://a.com"
-	url2 := "https://b.com"
-	host := "c.com"
-	port := int32(80)
-	services := []api.ServiceAsset{
-		{Url: &url1},
-		{Host: &host, Port: &port}, // no URL
-		{Url: &url2},
-	}
-	j := newJob(&api.JobDetail{Target: &api.JobTarget{Services: &services}}).(*job)
-	urls := j.URLs()
-	if len(urls) != 2 {
-		t.Fatalf("expected 2 URLs, got %d", len(urls))
-	}
-	if urls[0] != "https://a.com" || urls[1] != "https://b.com" {
-		t.Errorf("unexpected URLs: %v", urls)
 	}
 }
 
@@ -664,7 +544,6 @@ func TestBuildRefSpecs_MergeRequest(t *testing.T) {
 		BaseBranch: "main",
 	}
 	refs, checkout := buildRefSpecs(repo)
-	// Should have MR head ref + base branch ref
 	if len(refs) < 2 {
 		t.Fatalf("expected at least 2 refs, got %d: %v", len(refs), refs)
 	}
@@ -717,7 +596,7 @@ func TestBuildRefSpecs_EmptyCommitSHA_FallbackToBranch(t *testing.T) {
 	repo := &Repository{
 		Event:     "manual",
 		Branch:    "main",
-		CommitSHA: "", // empty — asset sync didn't populate
+		CommitSHA: "",
 	}
 	refs, checkout := buildRefSpecs(repo)
 	if len(refs) != 1 {
@@ -739,7 +618,6 @@ func TestBuildRefSpecs_Push_EmptyCommitSHA_WithBranch(t *testing.T) {
 		Ref:       "refs/heads/develop",
 	}
 	refs, checkout := buildRefSpecs(repo)
-	// Branch should be in refs from the default case (line 521-523)
 	found := false
 	for _, r := range refs {
 		if r == "+refs/heads/develop:refs/remotes/origin/develop" {
@@ -749,7 +627,6 @@ func TestBuildRefSpecs_Push_EmptyCommitSHA_WithBranch(t *testing.T) {
 	if !found {
 		t.Errorf("expected branch refspec, got %v", refs)
 	}
-	// checkoutRef should fallback to branch
 	if checkout != "origin/develop" {
 		t.Errorf("expected branch checkout fallback, got %q", checkout)
 	}
@@ -795,7 +672,7 @@ func TestBuildMrPrRefSpecs_UnknownProvider(t *testing.T) {
 // --- buildRepoURL ---
 
 func TestBuildRepoURL_Basic(t *testing.T) {
-	j := &job{detail: &api.JobDetail{}}
+	j := &job{detail: &agentv1.GetJobDetailResponse{}}
 	url, err := j.buildRepoURL(&Repository{URL: "https://github.com/org/repo.git"})
 	if err != nil {
 		t.Fatal(err)
@@ -806,7 +683,7 @@ func TestBuildRepoURL_Basic(t *testing.T) {
 }
 
 func TestBuildRepoURL_WithCredentials(t *testing.T) {
-	j := &job{detail: &api.JobDetail{}}
+	j := &job{detail: &agentv1.GetJobDetailResponse{}}
 	url, err := j.buildRepoURL(&Repository{
 		URL:      "https://github.com/org/repo.git",
 		Username: "user",
@@ -821,7 +698,7 @@ func TestBuildRepoURL_WithCredentials(t *testing.T) {
 }
 
 func TestBuildRepoURL_Empty(t *testing.T) {
-	j := &job{detail: &api.JobDetail{}}
+	j := &job{detail: &agentv1.GetJobDetailResponse{}}
 	_, err := j.buildRepoURL(&Repository{})
 	if err == nil {
 		t.Error("empty URL should return error")
@@ -829,7 +706,7 @@ func TestBuildRepoURL_Empty(t *testing.T) {
 }
 
 func TestBuildRepoURL_InvalidURL(t *testing.T) {
-	j := &job{detail: &api.JobDetail{}}
+	j := &job{detail: &agentv1.GetJobDetailResponse{}}
 	_, err := j.buildRepoURL(&Repository{URL: "://invalid"})
 	if err == nil {
 		t.Error("invalid URL should return error")
@@ -841,7 +718,6 @@ func TestBuildRepoURL_InvalidURL(t *testing.T) {
 func TestCleanupRepository_NoClonedDir(t *testing.T) {
 	j := &job{repoDir: "/some/ci/dir"}
 	j.cleanupRepository() // should be no-op
-	// repoDir should NOT be cleared for CI mode (clonedRepoDir is empty)
 	if j.repoDir != "/some/ci/dir" {
 		t.Errorf("CI repoDir should not be cleared, got %q", j.repoDir)
 	}

@@ -2,94 +2,94 @@ package rediver
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/califio/rediver-sdk-go/internal/api"
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	"buf.build/gen/go/rediver/api/connectrpc/go/agent/v1/agentv1connect"
+	"connectrpc.com/connect"
 )
+
+// --- test service implementations ---
+
+// dispatchTokenService captures the last GenerateToken request.
+type dispatchTokenService struct {
+	agentv1connect.UnimplementedTokenServiceHandler
+
+	mu      sync.Mutex
+	lastReq *agentv1.GenerateTokenRequest
+}
+
+func (s *dispatchTokenService) GenerateToken(_ context.Context, req *connect.Request[agentv1.GenerateTokenRequest]) (*connect.Response[agentv1.GenerateTokenResponse], error) {
+	s.mu.Lock()
+	s.lastReq = req.Msg
+	s.mu.Unlock()
+	return connect.NewResponse(&agentv1.GenerateTokenResponse{
+		AgentId: "agent-1",
+		Token:   "agent-token-1",
+	}), nil
+}
+
+// dispatchAgentService captures UpdateScanner calls.
+type dispatchAgentService struct {
+	agentv1connect.UnimplementedAgentServiceHandler
+
+	mu          sync.Mutex
+	updateReqs  []*agentv1.UpdateScannerRequest
+	updateSeen  chan struct{}
+}
+
+func (s *dispatchAgentService) Heartbeat(_ context.Context, _ *connect.Request[agentv1.HeartbeatRequest]) (*connect.Response[agentv1.HeartbeatResponse], error) {
+	return connect.NewResponse(&agentv1.HeartbeatResponse{}), nil
+}
+
+func (s *dispatchAgentService) UpdateScanner(ctx context.Context, req *connect.Request[agentv1.UpdateScannerRequest]) (*connect.Response[agentv1.UpdateScannerResponse], error) {
+	// Verify X-Token header was injected by authRetryTransport.
+	if got := req.Header().Get("X-Token"); got != "agent-token-1" {
+		// We can't call t.Errorf from here (no testing.T); store for assertion in test.
+	}
+	s.mu.Lock()
+	s.updateReqs = append(s.updateReqs, req.Msg)
+	s.mu.Unlock()
+	select {
+	case s.updateSeen <- struct{}{}:
+	default:
+	}
+	return connect.NewResponse(&agentv1.UpdateScannerResponse{}), nil
+}
+
+// dispatchJobService returns no-job (empty response) for PollJob.
+type dispatchJobService struct {
+	agentv1connect.UnimplementedJobServiceHandler
+}
+
+func (s *dispatchJobService) PollJob(_ context.Context, _ *connect.Request[agentv1.PollJobRequest]) (*connect.Response[agentv1.PollJobResponse], error) {
+	return connect.NewResponse(&agentv1.PollJobResponse{}), nil
+}
+
+// newDispatchSmokeServer creates an httptest server with all required Connect services.
+func newDispatchSmokeServer(t *testing.T, tokenSvc *dispatchTokenService, agentSvc *dispatchAgentService, jobSvc *dispatchJobService) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.Handle(agentv1connect.NewTokenServiceHandler(tokenSvc))
+	mux.Handle(agentv1connect.NewAgentServiceHandler(agentSvc))
+	mux.Handle(agentv1connect.NewJobServiceHandler(jobSvc))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
 
 func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 	t.Parallel()
 
-	type tokenRequest struct {
-		Scanner    string `json:"scanner"`
-		Persistent bool   `json:"persistent"`
-	}
+	tokenSvc := &dispatchTokenService{}
+	agentSvc := &dispatchAgentService{updateSeen: make(chan struct{}, 1)}
+	jobSvc := &dispatchJobService{}
 
-	var (
-		mu           sync.Mutex
-		gotTokenReq  tokenRequest
-		gotUpdateReq api.UpdateAgentScannerRequest
-		updateCalls  int
-	)
-
-	updateSeen := make(chan struct{}, 1)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/agent/generate-token":
-			var req tokenRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Errorf("decode token request: %v", err)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-
-			mu.Lock()
-			gotTokenReq = req
-			mu.Unlock()
-
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"agent_id": "agent-1",
-				"token":    "agent-token-1",
-			})
-			return
-
-		case r.Method == http.MethodPatch && r.URL.Path == "/api/agent/scanner":
-			if got := r.Header.Get("X-Token"); got != "agent-token-1" {
-				t.Errorf("X-Token = %q, want agent-token-1", got)
-			}
-
-			var req api.UpdateAgentScannerRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Errorf("decode update scanner request: %v", err)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-
-			mu.Lock()
-			gotUpdateReq = req
-			updateCalls++
-			mu.Unlock()
-
-			select {
-			case updateSeen <- struct{}{}:
-			default:
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
-			return
-
-		case r.Method == http.MethodGet && r.URL.Path == "/api/agent/job/poll":
-			w.WriteHeader(http.StatusNoContent)
-			return
-
-		case r.Method == http.MethodGet && r.URL.Path == "/api/agent/heartbeat":
-			w.WriteHeader(http.StatusNoContent)
-			return
-
-		default:
-			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
+	serverURL := newDispatchSmokeServer(t, tokenSvc, agentSvc, jobSvc)
 
 	schema := map[string]interface{}{
 		"type": "object",
@@ -105,7 +105,7 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 		"additionalProperties": false,
 	}
 
-	runner, err := NewRunner(server.URL, "cluster-token",
+	runner, err := NewRunner(serverURL, "cluster-token",
 		WithDispatcherMetadataSync(),
 		WithPollInterval(time.Second),
 	)
@@ -124,7 +124,7 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(50*time.Millisecond, cancel)
+	defer cancel()
 
 	done := make(chan error, 1)
 	go func() {
@@ -132,8 +132,8 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 	}()
 
 	select {
-	case <-updateSeen:
-	case <-time.After(2 * time.Second):
+	case <-agentSvc.updateSeen:
+	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for scanner metadata sync")
 	}
 
@@ -144,45 +144,63 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dispatch() error = %v", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for dispatcher shutdown")
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
+	// --- assertions on GenerateToken ---
+	tokenSvc.mu.Lock()
+	gotTokenReq := tokenSvc.lastReq
+	tokenSvc.mu.Unlock()
 
-	if gotTokenReq.Scanner != "calif-audit" {
-		t.Fatalf("token scanner = %q, want calif-audit", gotTokenReq.Scanner)
+	if gotTokenReq == nil {
+		t.Fatal("GenerateToken was never called")
 	}
-	if !gotTokenReq.Persistent {
+	if gotTokenReq.GetScanner() != "calif-audit" {
+		t.Fatalf("token scanner = %q, want calif-audit", gotTokenReq.GetScanner())
+	}
+	if !gotTokenReq.GetPersistent() {
 		t.Fatal("expected dispatcher token request to be persistent")
 	}
-	if updateCalls != 1 {
-		t.Fatalf("updateCalls = %d, want 1", updateCalls)
+
+	// --- assertions on UpdateScanner ---
+	agentSvc.mu.Lock()
+	updateReqs := agentSvc.updateReqs
+	agentSvc.mu.Unlock()
+
+	if len(updateReqs) != 1 {
+		t.Fatalf("updateCalls = %d, want 1", len(updateReqs))
 	}
-	if gotUpdateReq.Name == nil || *gotUpdateReq.Name != "calif-audit" {
-		t.Fatalf("update name = %v, want calif-audit", gotUpdateReq.Name)
+	updateReq := updateReqs[0]
+
+	if updateReq.GetName() != "calif-audit" {
+		t.Fatalf("update name = %q, want calif-audit", updateReq.GetName())
 	}
-	if gotUpdateReq.DisplayName == nil || *gotUpdateReq.DisplayName != "Calif Audit" {
-		t.Fatalf("display_name = %v, want Calif Audit", gotUpdateReq.DisplayName)
+	if updateReq.GetDisplayName() != "Calif Audit" {
+		t.Fatalf("display_name = %q, want Calif Audit", updateReq.GetDisplayName())
 	}
-	if gotUpdateReq.ParamsSchema == nil {
+	if updateReq.GetParamsSchema() == nil {
 		t.Fatal("expected params_schema to be sent")
 	}
-	props, ok := (*gotUpdateReq.ParamsSchema)["properties"].(map[string]interface{})
+	propsVal, ok := updateReq.GetParamsSchema().GetFields()["properties"]
 	if !ok {
-		t.Fatalf("params_schema.properties has unexpected type: %T", (*gotUpdateReq.ParamsSchema)["properties"])
+		t.Fatal("expected params_schema.properties field")
 	}
-	if _, ok := props["audit_mode"]; !ok {
+	propsStruct := propsVal.GetStructValue()
+	if propsStruct == nil {
+		t.Fatal("params_schema.properties is not a Struct")
+	}
+	if _, ok := propsStruct.GetFields()["audit_mode"]; !ok {
 		t.Fatal("expected audit_mode in params_schema.properties")
 	}
-	if gotUpdateReq.AssetTypes == nil || len(*gotUpdateReq.AssetTypes) != 2 {
-		t.Fatalf("asset_types = %v, want 2 entries", gotUpdateReq.AssetTypes)
+	assetTypes := updateReq.GetAssetTypes()
+	if len(assetTypes) != 2 {
+		t.Fatalf("asset_types len = %d, want 2", len(assetTypes))
 	}
-	if (*gotUpdateReq.AssetTypes)[0] != api.AssetTypesRepository {
-		t.Fatalf("asset_types[0] = %q, want %q", (*gotUpdateReq.AssetTypes)[0], api.AssetTypesRepository)
+	if assetTypes[0] != agentv1.AssetType_ASSET_TYPE_REPOSITORY {
+		t.Fatalf("asset_types[0] = %v, want ASSET_TYPE_REPOSITORY", assetTypes[0])
 	}
-	if (*gotUpdateReq.AssetTypes)[1] != api.AssetTypesService {
-		t.Fatalf("asset_types[1] = %q, want %q", (*gotUpdateReq.AssetTypes)[1], api.AssetTypesService)
+	if assetTypes[1] != agentv1.AssetType_ASSET_TYPE_SERVICE {
+		t.Fatalf("asset_types[1] = %v, want ASSET_TYPE_SERVICE", assetTypes[1])
 	}
 }

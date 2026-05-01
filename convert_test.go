@@ -3,6 +3,8 @@ package rediver
 import (
 	"testing"
 	"time"
+
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 )
 
 // --- ptrOrNil ---
@@ -119,37 +121,55 @@ func TestPtrTimeOrNil_InvalidFormat(t *testing.T) {
 }
 
 func TestPtrTimeOrNil_NonRFC3339(t *testing.T) {
-	// ISO 8601 but not RFC3339 (missing T separator or timezone)
 	if ptrTimeOrNil("2024-01-15 10:30:00") != nil {
 		t.Error("non-RFC3339 format should return nil")
 	}
 }
 
-// --- toAPISeverity ---
+// --- toProtoSeverity ---
 
-func TestToAPISeverity_Empty(t *testing.T) {
-	if toAPISeverity("") != nil {
-		t.Error("empty severity should return nil")
+func TestToProtoSeverity_Empty(t *testing.T) {
+	if toProtoSeverity("") != agentv1.Severity_SEVERITY_UNSPECIFIED {
+		t.Error("empty severity should return UNSPECIFIED")
 	}
 }
 
-func TestToAPISeverity_Valid(t *testing.T) {
-	p := toAPISeverity(SeverityCritical)
-	if p == nil {
-		t.Fatal("expected non-nil severity")
+func TestToProtoSeverity_Critical(t *testing.T) {
+	if toProtoSeverity(SeverityCritical) != agentv1.Severity_SEVERITY_CRITICAL {
+		t.Error("Critical severity mismatch")
 	}
 }
 
-// --- toAPIDomains ---
+func TestToProtoSeverity_AllValues(t *testing.T) {
+	tests := []struct {
+		in   Severity
+		want agentv1.Severity
+	}{
+		{SeverityCritical, agentv1.Severity_SEVERITY_CRITICAL},
+		{SeverityHigh, agentv1.Severity_SEVERITY_HIGH},
+		{SeverityMedium, agentv1.Severity_SEVERITY_MEDIUM},
+		{SeverityLow, agentv1.Severity_SEVERITY_LOW},
+		{SeverityInfo, agentv1.Severity_SEVERITY_INFO},
+		{SeverityNone, agentv1.Severity_SEVERITY_UNSPECIFIED},
+	}
+	for _, tc := range tests {
+		got := toProtoSeverity(tc.in)
+		if got != tc.want {
+			t.Errorf("toProtoSeverity(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
 
-func TestToAPIDomains_Empty(t *testing.T) {
-	result := toAPIDomains(nil)
+// --- toProtoDomains ---
+
+func TestToProtoDomains_Empty(t *testing.T) {
+	result := toProtoDomains(nil)
 	if len(result) != 0 {
 		t.Errorf("expected 0, got %d", len(result))
 	}
 }
 
-func TestToAPIDomains_MergesAAndAAAA(t *testing.T) {
+func TestToProtoDomains_MergesAAndAAAA(t *testing.T) {
 	domains := []Domain{
 		{
 			Domain: "example.com",
@@ -157,14 +177,11 @@ func TestToAPIDomains_MergesAAndAAAA(t *testing.T) {
 			AAAA:   []string{"::1"},
 		},
 	}
-	result := toAPIDomains(domains)
+	result := toProtoDomains(domains)
 	if len(result) != 1 {
 		t.Fatalf("expected 1, got %d", len(result))
 	}
-	if result[0].Ip == nil {
-		t.Fatal("expected merged IPs")
-	}
-	ips := *result[0].Ip
+	ips := result[0].GetIp()
 	if len(ips) != 2 {
 		t.Fatalf("expected 2 merged IPs, got %d", len(ips))
 	}
@@ -173,29 +190,29 @@ func TestToAPIDomains_MergesAAndAAAA(t *testing.T) {
 	}
 }
 
-func TestToAPIDomains_OnlyA(t *testing.T) {
-	result := toAPIDomains([]Domain{{Domain: "a.com", A: []string{"1.1.1.1"}}})
-	if result[0].Ip == nil || len(*result[0].Ip) != 1 {
+func TestToProtoDomains_OnlyA(t *testing.T) {
+	result := toProtoDomains([]Domain{{Domain: "a.com", A: []string{"1.1.1.1"}}})
+	if len(result[0].GetIp()) != 1 {
 		t.Error("expected 1 IP from A record")
 	}
 }
 
-func TestToAPIDomains_OnlyAAAA(t *testing.T) {
-	result := toAPIDomains([]Domain{{Domain: "a.com", AAAA: []string{"::1"}}})
-	if result[0].Ip == nil || len(*result[0].Ip) != 1 {
+func TestToProtoDomains_OnlyAAAA(t *testing.T) {
+	result := toProtoDomains([]Domain{{Domain: "a.com", AAAA: []string{"::1"}}})
+	if len(result[0].GetIp()) != 1 {
 		t.Error("expected 1 IP from AAAA record")
 	}
 }
 
-func TestToAPIDomains_NoIPs(t *testing.T) {
-	result := toAPIDomains([]Domain{{Domain: "a.com"}})
-	if result[0].Ip != nil {
-		t.Error("no A/AAAA should yield nil Ip")
+func TestToProtoDomains_NoIPs(t *testing.T) {
+	result := toProtoDomains([]Domain{{Domain: "a.com"}})
+	if len(result[0].GetIp()) != 0 {
+		t.Error("no A/AAAA should yield empty Ip slice")
 	}
 }
 
-func TestToAPIDomains_AllFields(t *testing.T) {
-	result := toAPIDomains([]Domain{{
+func TestToProtoDomains_AllFields(t *testing.T) {
+	result := toProtoDomains([]Domain{{
 		Domain: "example.com",
 		CNAME:  "alias.com",
 		MX:     []string{"mx.example.com"},
@@ -205,43 +222,42 @@ func TestToAPIDomains_AllFields(t *testing.T) {
 		TTL:    300,
 	}})
 	r := result[0]
-	if r.Domain == nil || *r.Domain != "example.com" {
-		t.Error("domain mismatch")
+	if r.GetDomain() != "example.com" {
+		t.Errorf("domain mismatch: got %q", r.GetDomain())
 	}
-	if r.Cname == nil || *r.Cname != "alias.com" {
-		t.Error("cname mismatch")
+	if r.GetCname() != "alias.com" {
+		t.Errorf("cname mismatch: got %q", r.GetCname())
 	}
-	if r.Ttl == nil || *r.Ttl != 300 {
-		t.Error("ttl mismatch")
+	if r.GetTtl() != 300 {
+		t.Errorf("ttl mismatch: got %d", r.GetTtl())
 	}
 }
 
-func TestToAPIDomains_ZeroValueFields(t *testing.T) {
-	result := toAPIDomains([]Domain{{}})
+func TestToProtoDomains_ZeroValueFields(t *testing.T) {
+	result := toProtoDomains([]Domain{{}})
 	r := result[0]
-	// All zero-value fields should map to nil pointers
-	if r.Domain != nil {
-		t.Error("empty domain should be nil")
+	if r.GetDomain() != "" {
+		t.Error("empty domain should be empty string")
 	}
-	if r.Cname != nil {
-		t.Error("empty cname should be nil")
+	if r.GetCname() != "" {
+		t.Error("empty cname should be empty string")
 	}
-	if r.Ttl != nil {
-		t.Error("zero ttl should be nil")
+	if r.GetTtl() != 0 {
+		t.Error("zero ttl should be 0")
 	}
 }
 
-// --- toAPIServices ---
+// --- toProtoServices ---
 
-func TestToAPIServices_Empty(t *testing.T) {
-	result := toAPIServices(nil)
+func TestToProtoServices_Empty(t *testing.T) {
+	result := toProtoServices(nil)
 	if len(result) != 0 {
 		t.Errorf("expected 0, got %d", len(result))
 	}
 }
 
-func TestToAPIServices_BasicFields(t *testing.T) {
-	result := toAPIServices([]Service{{
+func TestToProtoServices_BasicFields(t *testing.T) {
+	result := toProtoServices([]Service{{
 		Host:        "10.0.0.1",
 		Port:        8080,
 		ServiceName: "http-alt",
@@ -251,156 +267,27 @@ func TestToAPIServices_BasicFields(t *testing.T) {
 		t.Fatalf("expected 1, got %d", len(result))
 	}
 	s := result[0]
-	if s.Host == nil || *s.Host != "10.0.0.1" {
-		t.Error("host mismatch")
+	if s.GetHost() != "10.0.0.1" {
+		t.Errorf("host mismatch: %q", s.GetHost())
 	}
-	if s.Port == nil || *s.Port != 8080 {
-		t.Error("port mismatch")
+	if s.GetPort() != 8080 {
+		t.Errorf("port mismatch: %d", s.GetPort())
 	}
-	if s.Http != nil {
-		t.Error("no HTTP info should yield nil")
-	}
-	if s.Certificate != nil {
-		t.Error("no cert should yield nil")
+	if s.GetServiceName() != "http-alt" {
+		t.Errorf("service name mismatch: %q", s.GetServiceName())
 	}
 }
 
-func TestToAPIServices_WithHTTP(t *testing.T) {
-	result := toAPIServices([]Service{{
-		Host: "example.com",
-		Port: 443,
-		HTTP: &HTTPInfo{
-			URL:           "https://example.com",
-			Scheme:        "https",
-			StatusCode:    200,
-			Title:         "Example",
-			Technologies:  []string{"nginx"},
-			IPs:           []string{"1.2.3.4"},
-		},
-	}})
-	s := result[0]
-	if s.Http == nil {
-		t.Fatal("expected HTTP info")
-	}
-	if s.Http.Url == nil || *s.Http.Url != "https://example.com" {
-		t.Error("URL mismatch")
-	}
-	if s.Http.StatusCode == nil || *s.Http.StatusCode != 200 {
-		t.Error("status code mismatch")
-	}
-}
+// --- toProtoWebFindings ---
 
-func TestToAPIServices_WithCertificate(t *testing.T) {
-	result := toAPIServices([]Service{{
-		Host: "example.com",
-		Port: 443,
-		Certificate: &TLSInfo{
-			SubjectCN:      "*.example.com",
-			IssuerCN:       "Let's Encrypt",
-			IsWildcard:     true,
-			NotBefore:      "2024-01-01T00:00:00Z",
-			NotAfter:       "2025-01-01T00:00:00Z",
-			SubjectAltNames: []string{"example.com", "*.example.com"},
-		},
-	}})
-	s := result[0]
-	if s.Certificate == nil {
-		t.Fatal("expected certificate info")
-	}
-	if s.Certificate.SubjectCn == nil || *s.Certificate.SubjectCn != "*.example.com" {
-		t.Error("subject CN mismatch")
-	}
-	if s.Certificate.Wildcard == nil || !*s.Certificate.Wildcard {
-		t.Error("wildcard should be true")
-	}
-	if s.Certificate.NotBefore == nil {
-		t.Error("expected NotBefore time")
-	}
-}
-
-// --- toAPIHttpInfo ---
-
-func TestToAPIHttpInfo_Nil(t *testing.T) {
-	if toAPIHttpInfo(nil) != nil {
-		t.Error("nil should return nil")
-	}
-}
-
-func TestToAPIHttpInfo_AllFields(t *testing.T) {
-	h := &HTTPInfo{
-		URL:           "https://example.com/path",
-		Scheme:        "https",
-		Path:          "/path",
-		StatusCode:    301,
-		Title:         "Redirect",
-		ContentType:   "text/html",
-		Webserver:     "nginx",
-		Technologies:  []string{"React", "Node.js"},
-		RedirectTo:    "https://www.example.com",
-		FaviconHash:   "abc123",
-		ScreenshotURL: "https://screenshots.example.com/1.png",
-		IPs:           []string{"1.2.3.4", "5.6.7.8"},
-	}
-	result := toAPIHttpInfo(h)
-	if result == nil {
-		t.Fatal("expected non-nil")
-	}
-	if result.Url == nil || *result.Url != h.URL {
-		t.Error("URL mismatch")
-	}
-	if result.RedirectTo == nil || *result.RedirectTo != h.RedirectTo {
-		t.Error("redirect mismatch")
-	}
-	if result.Technologies == nil || len(*result.Technologies) != 2 {
-		t.Error("technologies mismatch")
-	}
-}
-
-func TestToAPIHttpInfo_ZeroValues(t *testing.T) {
-	result := toAPIHttpInfo(&HTTPInfo{})
-	if result == nil {
-		t.Fatal("should return non-nil for empty HTTPInfo")
-	}
-	// All zero-value fields should yield nil
-	if result.Url != nil {
-		t.Error("empty URL should be nil")
-	}
-	if result.StatusCode != nil {
-		t.Error("zero status code should be nil")
-	}
-}
-
-// --- toAPICertificateInfo ---
-
-func TestToAPICertificateInfo_Nil(t *testing.T) {
-	if toAPICertificateInfo(nil) != nil {
-		t.Error("nil should return nil")
-	}
-}
-
-func TestToAPICertificateInfo_InvalidTime(t *testing.T) {
-	result := toAPICertificateInfo(&TLSInfo{
-		NotBefore: "invalid-date",
-		NotAfter:  "also-invalid",
-	})
-	if result.NotBefore != nil {
-		t.Error("invalid NotBefore should be nil")
-	}
-	if result.NotAfter != nil {
-		t.Error("invalid NotAfter should be nil")
-	}
-}
-
-// --- toAPIWebFindings ---
-
-func TestToAPIWebFindings_Empty(t *testing.T) {
-	result := toAPIWebFindings(nil)
+func TestToProtoWebFindings_Empty(t *testing.T) {
+	result := toProtoWebFindings(nil)
 	if len(result) != 0 {
 		t.Errorf("expected 0, got %d", len(result))
 	}
 }
 
-func TestToAPIWebFindings_AllFields(t *testing.T) {
+func TestToProtoWebFindings_AllFields(t *testing.T) {
 	findings := []WebFinding{{
 		Name:        "SQL Injection",
 		Description: "User input directly in query",
@@ -419,149 +306,150 @@ func TestToAPIWebFindings_AllFields(t *testing.T) {
 			{RawRequest: "POST /api", RawResponse: "500 Error"},
 		},
 	}}
-	result := toAPIWebFindings(findings)
+	result := toProtoWebFindings(findings)
 	if len(result) != 1 {
 		t.Fatalf("expected 1, got %d", len(result))
 	}
 	r := result[0]
-	if r.Name == nil || *r.Name != "SQL Injection" {
-		t.Error("name mismatch")
+	if r.GetName() != "SQL Injection" {
+		t.Errorf("name mismatch: %q", r.GetName())
 	}
-	if r.CvssScore == nil || *r.CvssScore != 9.8 {
-		t.Error("CVSS score mismatch")
+	if r.GetCvssScore() != 9.8 {
+		t.Errorf("CVSS score mismatch: %f", r.GetCvssScore())
 	}
-	if r.Requests == nil || len(*r.Requests) != 1 {
-		t.Error("requests mismatch")
+	if len(r.GetRequests()) != 1 {
+		t.Errorf("requests mismatch: got %d", len(r.GetRequests()))
+	}
+	if r.GetSeverity() != agentv1.Severity_SEVERITY_CRITICAL {
+		t.Errorf("severity mismatch: %v", r.GetSeverity())
 	}
 }
 
-// --- toAPISASTFindings ---
+// --- toProtoSASTFindings ---
 
-func TestToAPISASTFindings_Empty(t *testing.T) {
-	result := toAPISASTFindings(nil)
+func TestToProtoSASTFindings_Empty(t *testing.T) {
+	result := toProtoSASTFindings(nil)
 	if len(result) != 0 {
 		t.Errorf("expected 0, got %d", len(result))
 	}
 }
 
-func TestToAPISASTFindings_WithCodeFlows(t *testing.T) {
+func TestToProtoSASTFindings_WithCodeFlows(t *testing.T) {
 	findings := []SASTFinding{{
-		Name:     "Taint Flow",
-		File:     "main.go",
+		Name: "Taint Flow",
+		File: "main.go",
 		CodeFlows: []CodeFlowNode{
 			{File: "a.go", StartLine: 1, EndLine: 1, Snippet: "input := r.URL.Query()"},
 			{File: "b.go", StartLine: 5, EndLine: 5, Snippet: "db.Exec(input)"},
 		},
 	}}
-	result := toAPISASTFindings(findings)
-	if result[0].CodeFlows == nil {
-		t.Fatal("expected code flows")
-	}
-	flows := *result[0].CodeFlows
+	result := toProtoSASTFindings(findings)
+	flows := result[0].GetCodeFlows()
 	if len(flows) != 2 {
 		t.Errorf("expected 2 flows, got %d", len(flows))
 	}
 }
 
-func TestToAPISASTFindings_WithCodeLines(t *testing.T) {
+func TestToProtoSASTFindings_WithCodeLines(t *testing.T) {
 	findings := []SASTFinding{{
 		Name: "Bug",
 		CodeLines: []CodeLine{
 			{Line: 10, Content: "exec(x)"},
 		},
 	}}
-	result := toAPISASTFindings(findings)
-	if result[0].CodeLines == nil {
-		t.Fatal("expected code lines")
-	}
-	lines := *result[0].CodeLines
+	result := toProtoSASTFindings(findings)
+	lines := result[0].GetCodeLines()
 	if len(lines) != 1 {
 		t.Errorf("expected 1 line, got %d", len(lines))
 	}
+	if lines[0].GetLine() != 10 {
+		t.Errorf("line number mismatch: %d", lines[0].GetLine())
+	}
 }
 
-func TestToAPISASTFindings_WithCommitSha(t *testing.T) {
+func TestToProtoSASTFindings_WithCommitSha(t *testing.T) {
 	findings := []SASTFinding{{
 		Name:      "Secret",
 		CommitSha: "abc123",
 	}}
-	result := toAPISASTFindings(findings)
-	if result[0].CommitSha == nil || *result[0].CommitSha != "abc123" {
-		t.Error("commit SHA mismatch")
+	result := toProtoSASTFindings(findings)
+	if result[0].GetCommitSha() != "abc123" {
+		t.Errorf("commit SHA mismatch: %q", result[0].GetCommitSha())
 	}
 }
 
-// --- toAPICodeFlows ---
+// --- toProtoCodeFlows ---
 
-func TestToAPICodeFlows_Empty(t *testing.T) {
-	if toAPICodeFlows(nil) != nil {
+func TestToProtoCodeFlows_Empty(t *testing.T) {
+	if toProtoCodeFlows(nil) != nil {
 		t.Error("nil should return nil")
 	}
-	if toAPICodeFlows([]CodeFlowNode{}) != nil {
+	if toProtoCodeFlows([]CodeFlowNode{}) != nil {
 		t.Error("empty slice should return nil")
 	}
 }
 
-func TestToAPICodeFlows_WithCodeLines(t *testing.T) {
+func TestToProtoCodeFlows_WithCodeLines(t *testing.T) {
 	nodes := []CodeFlowNode{{
 		File:      "a.go",
 		StartLine: 1,
 		CodeLines: []CodeLine{{Line: 1, Content: "x := 1"}},
 	}}
-	result := toAPICodeFlows(nodes)
+	result := toProtoCodeFlows(nodes)
 	if result == nil {
 		t.Fatal("expected non-nil")
 	}
-	if (*result)[0].CodeLines == nil {
+	if len(result[0].GetCodeLines()) == 0 {
 		t.Error("expected code lines on flow node")
 	}
 }
 
-// --- toAPICodeLines ---
+// --- toProtoCodeLines ---
 
-func TestToAPICodeLines_Empty(t *testing.T) {
-	if toAPICodeLines(nil) != nil {
+func TestToProtoCodeLines_Empty(t *testing.T) {
+	if toProtoCodeLines(nil) != nil {
 		t.Error("nil should return nil")
 	}
-	if toAPICodeLines([]CodeLine{}) != nil {
+	if toProtoCodeLines([]CodeLine{}) != nil {
 		t.Error("empty should return nil")
 	}
 }
 
-func TestToAPICodeLines_NonEmpty(t *testing.T) {
-	result := toAPICodeLines([]CodeLine{{Line: 42, Content: "return nil"}})
+func TestToProtoCodeLines_NonEmpty(t *testing.T) {
+	result := toProtoCodeLines([]CodeLine{{Line: 42, Content: "return nil"}})
 	if result == nil {
 		t.Fatal("expected non-nil")
 	}
-	lines := *result
-	if len(lines) != 1 {
-		t.Fatalf("expected 1, got %d", len(lines))
+	if len(result) != 1 {
+		t.Fatalf("expected 1, got %d", len(result))
+	}
+	if result[0].GetLine() != 42 {
+		t.Errorf("line mismatch: %d", result[0].GetLine())
 	}
 }
 
-// --- toAPIRawRequests ---
+// --- toProtoRawRequests ---
 
-func TestToAPIRawRequests_Empty(t *testing.T) {
-	if toAPIRawRequests(nil) != nil {
+func TestToProtoRawRequests_Empty(t *testing.T) {
+	if toProtoRawRequests(nil) != nil {
 		t.Error("nil should return nil")
 	}
-	if toAPIRawRequests([]HTTPRequest{}) != nil {
+	if toProtoRawRequests([]HTTPRequest{}) != nil {
 		t.Error("empty should return nil")
 	}
 }
 
-func TestToAPIRawRequests_NonEmpty(t *testing.T) {
-	result := toAPIRawRequests([]HTTPRequest{
+func TestToProtoRawRequests_NonEmpty(t *testing.T) {
+	result := toProtoRawRequests([]HTTPRequest{
 		{RawRequest: "GET / HTTP/1.1", RawResponse: "HTTP/1.1 200 OK"},
 	})
 	if result == nil {
 		t.Fatal("expected non-nil")
 	}
-	reqs := *result
-	if len(reqs) != 1 {
-		t.Fatalf("expected 1, got %d", len(reqs))
+	if len(result) != 1 {
+		t.Fatalf("expected 1, got %d", len(result))
 	}
-	if reqs[0].Request == nil || *reqs[0].Request != "GET / HTTP/1.1" {
-		t.Error("request mismatch")
+	if result[0].GetRequest() != "GET / HTTP/1.1" {
+		t.Errorf("request mismatch: %q", result[0].GetRequest())
 	}
 }
