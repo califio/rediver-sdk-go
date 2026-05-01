@@ -1,18 +1,40 @@
 package rediver
 
 import (
-	"github.com/califio/rediver-sdk-go/internal/api"
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 )
 
-// TargetType is a type alias for the generated API AssetTypes enum.
-type TargetType = api.AssetTypes
+// TargetType is the scanner asset type (public SDK type — unchanged from v1).
+type TargetType string
 
 const (
-	TargetTypeASN        = api.AssetTypesAsn
-	TargetTypeIP         = api.AssetTypesIp
-	TargetTypeSubnet     = api.AssetTypesSubnet
-	TargetTypeDomain     = api.AssetTypesSubdomain
-	TargetTypeRootDomain = api.AssetTypesRootDomain
-	TargetTypeService    = api.AssetTypesService
-	TargetTypeRepository = api.AssetTypesRepository
+	TargetTypeASN        TargetType = "Asn"
+	TargetTypeIP         TargetType = "Ip"
+	TargetTypeSubnet     TargetType = "Subnet"
+	TargetTypeDomain     TargetType = "Subdomain"
+	TargetTypeRootDomain TargetType = "RootDomain"
+	TargetTypeService    TargetType = "Service"
+	TargetTypeRepository TargetType = "Repository"
 )
+
+// toProtoAssetType converts an SDK TargetType to the proto AssetType enum.
+func toProtoAssetType(t TargetType) agentv1.AssetType {
+	switch t {
+	case TargetTypeASN:
+		return agentv1.AssetType_ASSET_TYPE_ASN
+	case TargetTypeIP:
+		return agentv1.AssetType_ASSET_TYPE_IP
+	case TargetTypeSubnet:
+		return agentv1.AssetType_ASSET_TYPE_SUBNET
+	case TargetTypeDomain:
+		return agentv1.AssetType_ASSET_TYPE_SUBDOMAIN
+	case TargetTypeRootDomain:
+		return agentv1.AssetType_ASSET_TYPE_ROOT_DOMAIN
+	case TargetTypeService:
+		return agentv1.AssetType_ASSET_TYPE_SERVICE
+	case TargetTypeRepository:
+		return agentv1.AssetType_ASSET_TYPE_REPOSITORY
+	default:
+		return agentv1.AssetType_ASSET_TYPE_UNSPECIFIED
+	}
+}

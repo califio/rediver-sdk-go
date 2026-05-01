@@ -11,7 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/califio/rediver-sdk-go/internal/api"
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	"google.golang.org/protobuf/types/known/structpb"
+
 	"github.com/califio/rediver-sdk-go/internal/auth"
 	"github.com/califio/rediver-sdk-go/internal/transport"
 	"github.com/califio/rediver-sdk-go/internal/worker"
@@ -25,7 +27,6 @@ const (
 )
 
 // agent is the internal per-scanner agent (unexported).
-// It manages token generation, heartbeat, polling, and job execution for one scanner.
 type agent struct {
 	scanner     Scanner
 	scannerName string        // scanner name in DB (normalized)
@@ -34,7 +35,7 @@ type agent struct {
 	token       atomic.Value  // stores string — current agent token
 
 	tokenManager *auth.TokenManager // per-agent token lifecycle
-	client       *transport.Client  // per-agent HTTP client
+	client       *transport.Client  // per-agent Connect client
 	pool         *worker.Pool       // per-agent worker pool
 	retrier      *retrier
 	logger       *slog.Logger
@@ -70,11 +71,9 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 		genReq.JobId = &config.directJobID
 	}
 
-	// Create token manager (no persister — agent IDs are server-managed)
 	tm := auth.NewTokenManager(clusterToken)
 	tm.SetGenReq(genReq)
 
-	// Create transport client — wires generateTokenFn and revokeFn into TokenManager
 	client, err := transport.NewClient(serverURL, tm, config.httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("create transport: %w", err)
@@ -91,7 +90,6 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 		return nil, fmt.Errorf("generate-token: %w", err)
 	}
 
-	// Cache AgentId in genReq for subsequent 401 refreshes
 	agentID := derefStr(resp.AgentId)
 	genReq.AgentId = &agentID
 	tm.SetGenReq(genReq)
@@ -114,10 +112,8 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 		),
 	}
 	a.token.Store(token)
-
 	a.pool = worker.NewPool(config.maxConcurrency, config.maxConcurrency*2)
 
-	// Sync scanner metadata to backend when the current run mode owns scanner config.
 	if syncMetadata {
 		a.syncScannerMetadata(ctx)
 	}
@@ -134,7 +130,6 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 // --- Run modes ---
 
 // run starts the Worker mode lifecycle: heartbeat + poll loops.
-// Blocks until ctx is cancelled, then drains in-flight jobs.
 func (a *agent) run(ctx context.Context) error {
 	a.drainCtx, a.cancelDrain = context.WithCancel(context.Background())
 	defer a.cancelDrain()
@@ -168,15 +163,13 @@ func (a *agent) run(ctx context.Context) error {
 	}
 
 	a.cancelDrain()
-	return nil // controlled shutdown — nil so errgroup doesn't cancel sibling agents
+	return nil
 }
 
 // runOnce runs Task mode: poll one job, execute it, revoke token, return.
-// If config.directJobID is set, skip polling and execute that job directly.
 func (a *agent) runOnce(ctx context.Context) error {
 	var jobID string
 	if a.config.directJobID != "" {
-		// Direct mode: skip poll, execute the specified job.
 		jobID = a.config.directJobID
 		a.logger.Info("direct job execution", "job_id", jobID)
 	} else {
@@ -212,7 +205,6 @@ func (a *agent) runCI(ctx context.Context) error {
 		"ref", ci.Ref.Name,
 	)
 
-	// Only execute if this scanner supports TargetTypeRepository
 	supportsRepo := false
 	for _, t := range a.scanner.AssetTypes() {
 		if t == TargetTypeRepository {
@@ -231,7 +223,6 @@ func (a *agent) runCI(ctx context.Context) error {
 }
 
 // runDispatcher runs Dispatcher mode: heartbeat + poll loops, calling handler instead of executing.
-// Agent does NOT manage job lifecycle — external worker handles execution.
 func (a *agent) runDispatcher(ctx context.Context, handler JobHandler) error {
 	a.drainCtx, a.cancelDrain = context.WithCancel(context.Background())
 	defer a.cancelDrain()
@@ -240,7 +231,6 @@ func (a *agent) runDispatcher(ctx context.Context, handler JobHandler) error {
 
 	go a.heartbeatLoop(a.drainCtx)
 
-	// Poll + dispatch loop
 	ticker := time.NewTicker(a.config.pollInterval)
 	defer ticker.Stop()
 
@@ -281,8 +271,6 @@ func (a *agent) runDispatcher(ctx context.Context, handler JobHandler) error {
 
 // --- Heartbeat ---
 
-// heartbeatLoop sends GET /api/agent/heartbeat every 60s.
-// 401 retry is handled transparently by the transport layer.
 func (a *agent) heartbeatLoop(ctx context.Context) {
 	ticker := time.NewTicker(agentHeartbeatInterval)
 	defer ticker.Stop()
@@ -301,7 +289,6 @@ func (a *agent) heartbeatLoop(ctx context.Context) {
 
 // --- Poll loop ---
 
-// pollLoop drives the Worker poll-and-dispatch cycle.
 func (a *agent) pollLoop(ctx context.Context) {
 	ticker := time.NewTicker(a.config.pollInterval)
 	defer ticker.Stop()
@@ -316,7 +303,6 @@ func (a *agent) pollLoop(ctx context.Context) {
 	}
 }
 
-// pollAndDispatch pulls one job and submits it to the worker pool.
 func (a *agent) pollAndDispatch(ctx context.Context) {
 	if a.pool.ActiveWorkers() >= a.config.maxConcurrency {
 		return
@@ -344,11 +330,7 @@ func (a *agent) pollAndDispatch(ctx context.Context) {
 	}
 }
 
-// --- pullJob ---
-
-// pullJob calls GET /api/agent/job/poll.
-// 401 retry is handled transparently by the transport layer.
-// Returns (jobID, scanner, error). Returns ErrNoJobAvailable on 204.
+// pullJob calls PollJob RPC. Returns ErrNoJobAvailable when no job is waiting.
 func (a *agent) pullJob(ctx context.Context) (string, string, error) {
 	jobID, scanner, err := a.client.DoPollJob(ctx)
 	if err != nil {
@@ -362,26 +344,22 @@ func (a *agent) pullJob(ctx context.Context) (string, string, error) {
 
 // --- Job execution ---
 
-// executeJob fetches job detail, runs the scanner, and reports the result.
 func (a *agent) executeJob(ctx context.Context, jobID string) error {
 	a.logger.Info("executing job", "job_id", jobID)
 
-	// 1. Get job detail
 	detail, err := a.getJobDetail(ctx, jobID)
 	if err != nil {
 		a.reportJobFailed(ctx, jobID, fmt.Sprintf("get detail: %v", err))
 		return err
 	}
 
-	// 2. Build Job object
 	j := newJob(detail)
 	j.(*job).artifactDownloadFn = a.client.GetArtifactPresignedURL
 	j.(*job).executionToken = a.tokenManager.AgentToken()
 
-	// 3. Attach job logger + log transport
 	scannerName := a.scannerName
-	if detail.Scanner != nil {
-		scannerName = strings.ToLower(*detail.Scanner)
+	if detail.Scanner != "" {
+		scannerName = strings.ToLower(detail.Scanner)
 	}
 	jobLogger, bufHandler := newJobLogger(jobID, scannerName, a.config.logger)
 	j.(*job).logger = jobLogger
@@ -396,11 +374,9 @@ func (a *agent) executeJob(ctx context.Context, jobID string) error {
 		lt.Run(logCtx)
 	}()
 
-	// 4. Report job started
 	jobLogger.Info("job started", "scanner", scannerName)
 	a.reportJobStarted(ctx, jobID)
 
-	// 5. Prepare repository if needed
 	if repo, hasRepo := j.Repository(); hasRepo {
 		attrs := []any{
 			"url", repo.URL,
@@ -422,12 +398,9 @@ func (a *agent) executeJob(ctx context.Context, jobID string) error {
 		defer j.(*job).cleanupRepository()
 	}
 
-	// 6. Start job heartbeat
 	hbCtx, cancelHB := context.WithCancel(ctx)
 	go a.jobHeartbeatLoop(hbCtx, jobID)
 
-	// 7. Execute scanner
-	// Capture resolved HEAD SHA for populating per-finding CommitSha
 	var resolvedHeadSHA string
 	if jImpl, ok := j.(*job); ok {
 		resolvedHeadSHA = jImpl.resolvedHeadSHA
@@ -436,7 +409,6 @@ func (a *agent) executeJob(ctx context.Context, jobID string) error {
 		a.importResult(ctx, jobID, res, resolvedHeadSHA)
 	})
 
-	// 8. Report final status
 	if scanErr != nil {
 		jobLogger.Error("job failed", "error", scanErr.Error())
 	} else {
@@ -455,18 +427,12 @@ func (a *agent) executeJob(ctx context.Context, jobID string) error {
 	return nil
 }
 
-func (a *agent) getJobDetail(ctx context.Context, jobID string) (*api.JobDetail, error) {
-	var detail *api.JobDetail
+func (a *agent) getJobDetail(ctx context.Context, jobID string) (*agentv1.GetJobDetailResponse, error) {
+	var detail *agentv1.GetJobDetailResponse
 	err := a.retrier.Do(ctx, func() error {
-		res, err := a.client.GetJobDetailWithResponse(ctx, jobID)
-		if err != nil {
-			return err
-		}
-		if res.StatusCode() >= 400 {
-			return &APIError{StatusCode: res.StatusCode(), Response: string(res.Body)}
-		}
-		detail = res.JSON200
-		return nil
+		var err error
+		detail, err = a.client.GetJobDetail(ctx, jobID)
+		return err
 	})
 	return detail, err
 }
@@ -474,18 +440,15 @@ func (a *agent) getJobDetail(ctx context.Context, jobID string) (*api.JobDetail,
 // --- Job lifecycle API calls ---
 
 func (a *agent) reportJobStarted(ctx context.Context, jobID string) {
-	body := api.JobStartRequest{JobId: &jobID}
-	_, _ = a.client.JobStartWithResponse(ctx, body)
+	_ = a.client.JobStart(ctx, jobID)
 }
 
 func (a *agent) reportJobCompleted(ctx context.Context, jobID string) {
-	body := api.JobCompletedRequest{JobId: &jobID}
-	_, _ = a.client.JobCompletedWithResponse(ctx, body)
+	_ = a.client.JobCompleted(ctx, jobID)
 }
 
 func (a *agent) reportJobFailed(ctx context.Context, jobID string, description string) {
-	body := api.JobFailedRequest{JobId: &jobID, Description: &description}
-	_, _ = a.client.JobFailedWithResponse(ctx, body)
+	_ = a.client.JobFailed(ctx, jobID, description)
 }
 
 func (a *agent) jobHeartbeatLoop(ctx context.Context, jobID string) {
@@ -497,9 +460,7 @@ func (a *agent) jobHeartbeatLoop(ctx context.Context, jobID string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			body := api.JobHeartbeatRequest{JobId: &jobID}
-			_, err := a.client.JobHeartbeatWithResponse(ctx, body)
-			if err != nil {
+			if err := a.client.JobHeartbeat(ctx, jobID); err != nil {
 				a.logger.Warn("job heartbeat failed", "job_id", jobID, "error", err)
 			}
 		}
@@ -519,7 +480,6 @@ func (a *agent) importResult(ctx context.Context, jobID string, res Result, head
 		a.importWebFindings(ctx, jobID, findings)
 	}
 	if findings := res.GetSASTFindings(); len(findings) > 0 {
-		// Populate per-finding CommitSha with resolved HEAD when scanner didn't set it
 		if headSHA != "" {
 			for i := range findings {
 				if findings[i].CommitSha == "" {
@@ -532,20 +492,15 @@ func (a *agent) importResult(ctx context.Context, jobID string, res Result, head
 }
 
 func (a *agent) importDomains(ctx context.Context, jobID string, domains []Domain) {
-	apiDomains := toAPIDomains(domains)
+	apiDomains := toProtoDomains(domains)
 	for i := 0; i < len(apiDomains); i += agentMaxBatchSize {
 		end := min(i+agentMaxBatchSize, len(apiDomains))
 		chunk := apiDomains[i:end]
 		err := a.retrier.Do(ctx, func() error {
-			body := api.PushAssetsJSONRequestBody{Domains: &chunk, JobId: &jobID}
-			res, err := a.client.PushAssetsWithResponse(ctx, body)
-			if err != nil {
-				return err
-			}
-			if res.StatusCode() >= 400 {
-				return &APIError{StatusCode: res.StatusCode(), Response: string(res.Body)}
-			}
-			return nil
+			return a.client.PushAssets(ctx, &agentv1.PushAssetsRequest{
+				JobId:   jobID,
+				Domains: chunk,
+			})
 		})
 		if err != nil {
 			a.logger.Error("import domains failed", "job_id", jobID, "error", err)
@@ -554,20 +509,15 @@ func (a *agent) importDomains(ctx context.Context, jobID string, domains []Domai
 }
 
 func (a *agent) importServices(ctx context.Context, jobID string, services []Service) {
-	apiServices := toAPIServices(services)
+	apiServices := toProtoServices(services)
 	for i := 0; i < len(apiServices); i += agentMaxBatchSize {
 		end := min(i+agentMaxBatchSize, len(apiServices))
 		chunk := apiServices[i:end]
 		err := a.retrier.Do(ctx, func() error {
-			body := api.PushAssetsJSONRequestBody{Services: &chunk, JobId: &jobID}
-			res, err := a.client.PushAssetsWithResponse(ctx, body)
-			if err != nil {
-				return err
-			}
-			if res.StatusCode() >= 400 {
-				return &APIError{StatusCode: res.StatusCode(), Response: string(res.Body)}
-			}
-			return nil
+			return a.client.PushAssets(ctx, &agentv1.PushAssetsRequest{
+				JobId:    jobID,
+				Services: chunk,
+			})
 		})
 		if err != nil {
 			a.logger.Error("import services failed", "job_id", jobID, "error", err)
@@ -576,17 +526,11 @@ func (a *agent) importServices(ctx context.Context, jobID string, services []Ser
 }
 
 func (a *agent) importWebFindings(ctx context.Context, jobID string, findings []WebFinding) {
-	apiFindings := toAPIWebFindings(findings)
 	err := a.retrier.Do(ctx, func() error {
-		body := api.PushFindingsJSONRequestBody{WebFindings: &apiFindings, JobId: &jobID}
-		res, err := a.client.PushFindingsWithResponse(ctx, body)
-		if err != nil {
-			return err
-		}
-		if res.StatusCode() >= 400 {
-			return &APIError{StatusCode: res.StatusCode(), Response: string(res.Body)}
-		}
-		return nil
+		return a.client.PushFindings(ctx, &agentv1.PushFindingsRequest{
+			JobId:       jobID,
+			WebFindings: toProtoWebFindings(findings),
+		})
 	})
 	if err != nil {
 		a.logger.Error("import web findings failed", "job_id", jobID, "error", err)
@@ -594,17 +538,11 @@ func (a *agent) importWebFindings(ctx context.Context, jobID string, findings []
 }
 
 func (a *agent) importSASTFindings(ctx context.Context, jobID string, findings []SASTFinding) {
-	apiFindings := toAPISASTFindings(findings)
 	err := a.retrier.Do(ctx, func() error {
-		body := api.PushFindingsJSONRequestBody{CodeFindings: &apiFindings, JobId: &jobID}
-		res, err := a.client.PushFindingsWithResponse(ctx, body)
-		if err != nil {
-			return err
-		}
-		if res.StatusCode() >= 400 {
-			return &APIError{StatusCode: res.StatusCode(), Response: string(res.Body)}
-		}
-		return nil
+		return a.client.PushFindings(ctx, &agentv1.PushFindingsRequest{
+			JobId:        jobID,
+			CodeFindings: toProtoSASTFindings(findings),
+		})
 	})
 	if err != nil {
 		a.logger.Error("import SAST findings failed", "job_id", jobID, "error", err)
@@ -613,7 +551,6 @@ func (a *agent) importSASTFindings(ctx context.Context, jobID string, findings [
 
 // --- CI mode ---
 
-// detectGitContext returns CI context, applying repoDir override if configured.
 func (a *agent) detectGitContext() *CIContext {
 	ci := DetectGitContext()
 	if a.config.repoDir != "" {
@@ -627,40 +564,36 @@ func (a *agent) detectGitContext() *CIContext {
 }
 
 func (a *agent) executeCIJob(ctx context.Context, ci *CIContext) error {
-	// Resolve params from env vars
 	params := resolveParamsFromEnv(a.scanner.Params(), ci.Parameters)
 
-	// Create job via API
-	apiReq := ciContextToAPIRequest(ci, a.scannerName)
+	apiReq := ciContextToProtoRequest(ci, a.scannerName)
 	if len(params) > 0 {
-		apiReq.Parameters = &params
+		s, err := structpb.NewStruct(params)
+		if err == nil {
+			apiReq.Parameters = s
+		}
 	}
 
-	res, err := a.client.CreateJobWithResponse(ctx, apiReq)
+	ciResp, err := a.client.CreateCiJob(ctx, apiReq)
 	if err != nil {
 		return fmt.Errorf("create CI job: %w", err)
 	}
-	if res.StatusCode() >= 400 {
-		return &APIError{StatusCode: res.StatusCode(), Response: string(res.Body)}
-	}
-	if res.JSON200 == nil || res.JSON200.JobId == nil {
-		return fmt.Errorf("create CI job: no job ID returned")
-	}
-	if res.JSON200.Success != nil && !*res.JSON200.Success {
-		msg := ""
-		if res.JSON200.Message != nil {
-			msg = *res.JSON200.Message
+	if !ciResp.GetSuccess() {
+		msg := ciResp.GetMessage()
+		if msg == "" {
+			msg = "unknown error"
 		}
 		return fmt.Errorf("create CI job: %s", msg)
 	}
+	jobID := ciResp.GetJobId()
+	if jobID == "" {
+		return fmt.Errorf("create CI job: no job ID returned")
+	}
 
-	jobID := *res.JSON200.JobId
 	a.logger.Info("CI job created", "job_id", jobID)
 
-	// Build job from CIContext
 	j := newCIJob(jobID, ci, a.scannerName, params)
 
-	// Attach job logger + log transport
 	ciJobLogger, ciBufHandler := newJobLogger(jobID, a.scannerName, a.config.logger)
 	j.(*job).logger = ciJobLogger
 
@@ -689,7 +622,7 @@ func (a *agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 	go a.jobHeartbeatLoop(hbCtx, jobID)
 
 	scanErr := a.scanner.Scan(ctx, j, func(res Result) {
-		a.importResult(ctx, jobID, res, "") // CI mode: CommitSHA always from env vars
+		a.importResult(ctx, jobID, res, "")
 	})
 
 	if scanErr != nil {
@@ -712,11 +645,9 @@ func (a *agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 
 // --- Scanner metadata update ---
 
-// syncScannerMetadata calls PATCH /api/agent/scanner to sync scanner config
-// using the scanner's own metadata (name, asset types, params, etc.).
 func (a *agent) syncScannerMetadata(ctx context.Context) {
 	name := a.scanner.Name()
-	req := api.UpdateAgentScannerRequest{Name: &name}
+	req := &agentv1.UpdateScannerRequest{Name: name}
 	var needsUpdate bool
 
 	if dn, ok := a.scanner.(interface{ DisplayName() string }); ok {
@@ -728,23 +659,29 @@ func (a *agent) syncScannerMetadata(ctx context.Context) {
 
 	if ps, ok := a.scanner.(interface{ ParamsSchema() map[string]interface{} }); ok {
 		if schema := ps.ParamsSchema(); schema != nil {
-			req.ParamsSchema = &schema
-			needsUpdate = true
+			s, err := structpb.NewStruct(schema)
+			if err == nil {
+				req.ParamsSchema = s
+				needsUpdate = true
+			}
 		}
 	} else if ps := a.scanner.Params(); len(ps) > 0 {
 		schema := ParamsToJSONSchema(ps)
 		if schema != nil {
-			req.ParamsSchema = &schema
-			needsUpdate = true
+			s, err := structpb.NewStruct(schema)
+			if err == nil {
+				req.ParamsSchema = s
+				needsUpdate = true
+			}
 		}
 	}
 
 	if types := a.scanner.AssetTypes(); len(types) > 0 {
-		assetTypes := make([]api.AssetTypes, len(types))
+		assetTypes := make([]agentv1.AssetType, len(types))
 		for i, t := range types {
-			assetTypes[i] = api.AssetTypes(t)
+			assetTypes[i] = toProtoAssetType(t)
 		}
-		req.AssetTypes = &assetTypes
+		req.AssetTypes = assetTypes
 		needsUpdate = true
 	}
 
@@ -769,7 +706,7 @@ func (a *agent) syncScannerMetadata(ctx context.Context) {
 
 type agentPoolJob struct {
 	a     *agent
-	ctx   context.Context // drainCtx
+	ctx   context.Context
 	jobID string
 }
 
