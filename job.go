@@ -2,6 +2,7 @@ package rediver
 
 import (
 	"context"
+	"io"
 	"log/slog"
 
 	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
@@ -78,6 +79,15 @@ type Job interface {
 
 	// Logger returns a job-scoped logger for structured logging during execution.
 	Logger() *slog.Logger
+
+	// Emit ships a typed event through the SDK's event transport. The event's
+	// Sequence and Timestamp are assigned automatically.
+	Emit(event Event)
+
+	// SlogHandler returns a slog.Handler adapter that emits each log record
+	// as a Log event through Emit. Use only for third-party libs that take
+	// *slog.Logger; for direct scanner code, prefer Emit + NewLog.
+	SlogHandler() slog.Handler
 }
 
 // artifactDownloadFunc fetches a presigned download URL for the given artifactID.
@@ -90,6 +100,7 @@ type job struct {
 	params             map[string]interface{}
 	ciContext          *CIContext           // non-nil = CI mode
 	logger             *slog.Logger         // job-scoped logger
+	transport          *eventTransport      // populated in agent_execute.go before Scan()
 	executionToken     string               // snapshot for scanner subprocesses
 	repoDir            string               // prepared repo path
 	clonedRepoDir      string               // non-empty when SDK cloned it
@@ -156,6 +167,20 @@ func (j *job) Logger() *slog.Logger {
 		return slog.New(discardHandler{})
 	}
 	return j.logger
+}
+
+func (j *job) Emit(ev Event) {
+	if j.transport == nil {
+		return // pre-init guard; should never happen at scan time
+	}
+	j.transport.Submit(ev)
+}
+
+func (j *job) SlogHandler() slog.Handler {
+	if j.transport == nil {
+		return slog.NewTextHandler(io.Discard, nil)
+	}
+	return newJobSlogAdapter(j.transport.Submit, slog.LevelDebug)
 }
 
 // discardHandler is a slog.Handler that silently discards all records.
