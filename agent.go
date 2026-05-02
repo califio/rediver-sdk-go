@@ -26,6 +26,13 @@ const (
 	agentMaxBatchSize      = 500
 )
 
+// pollDoer abstracts DoPollJob so pollLoop can be unit-tested without a real
+// transport.Client. Set agent.testPollDoer in tests; production code uses nil
+// (falls back to agent.client).
+type pollDoer interface {
+	DoPollJob(ctx context.Context, waitSeconds int32) (string, string, error)
+}
+
 // agent is the internal per-scanner agent (unexported).
 type agent struct {
 	scanner     Scanner
@@ -39,6 +46,9 @@ type agent struct {
 	pool         *worker.Pool       // per-agent worker pool
 	retrier      *retrier
 	logger       *slog.Logger
+
+	// testPollDoer overrides client for pollLoop in unit tests; nil in production.
+	testPollDoer pollDoer
 
 	genReq auth.GenerateTokenRequest // cached for 401 refresh
 
@@ -311,7 +321,11 @@ func (a *agent) pollLoop(ctx context.Context) {
 			continue
 		}
 
-		jobID, _, err := a.client.DoPollJob(ctx, waitSeconds)
+		poller := pollDoer(a.client)
+		if a.testPollDoer != nil {
+			poller = a.testPollDoer
+		}
+		jobID, _, err := poller.DoPollJob(ctx, waitSeconds)
 		if err != nil {
 			a.logger.Warn("poll error", "error", err)
 			sleep := backoff
