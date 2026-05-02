@@ -1,0 +1,132 @@
+package rediver
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"google.golang.org/protobuf/types/known/structpb"
+)
+
+// runCI runs CI mode: detect git context, create job, execute, revoke token, return.
+func (a *agent) runCI(ctx context.Context) error {
+	ci := a.detectGitContext()
+	if ci == nil {
+		_ = a.tokenManager.RevokeToken(ctx)
+		return fmt.Errorf("%w: not running in a recognized CI environment or git repository", ErrInvalidConfig)
+	}
+
+	a.logger.Info("CI environment detected",
+		"provider", string(ci.Provider),
+		"repo", ci.Repo.Name,
+		"ref", ci.Ref.Name,
+	)
+
+	supportsRepo := false
+	for _, t := range a.scanner.AssetTypes() {
+		if t == TargetTypeRepository {
+			supportsRepo = true
+			break
+		}
+	}
+	if !supportsRepo {
+		_ = a.tokenManager.RevokeToken(ctx)
+		return fmt.Errorf("%w: scanner %q does not support TargetTypeRepository", ErrInvalidConfig, a.scannerName)
+	}
+
+	err := a.executeCIJob(ctx, ci)
+	_ = a.tokenManager.RevokeToken(ctx)
+	return err
+}
+
+func (a *agent) detectGitContext() *CIContext {
+	ci := DetectGitContext()
+	if a.config.repoDir != "" {
+		if ci == nil {
+			ci = detectLocalGit(a.config.repoDir)
+		} else {
+			ci.RepoDir = a.config.repoDir
+		}
+	}
+	return ci
+}
+
+func (a *agent) executeCIJob(ctx context.Context, ci *CIContext) error {
+	params := resolveParamsFromEnv(a.scanner.Params(), ci.Parameters)
+
+	apiReq := ciContextToProtoRequest(ci, a.scannerName)
+	if len(params) > 0 {
+		s, err := structpb.NewStruct(params)
+		if err == nil {
+			apiReq.Parameters = s
+		}
+	}
+
+	ciResp, err := a.client.CreateCiJob(ctx, apiReq)
+	if err != nil {
+		return fmt.Errorf("create CI job: %w", err)
+	}
+	if !ciResp.GetSuccess() {
+		msg := ciResp.GetMessage()
+		if msg == "" {
+			msg = "unknown error"
+		}
+		return fmt.Errorf("create CI job: %s", msg)
+	}
+	jobID := ciResp.GetJobId()
+	if jobID == "" {
+		return fmt.Errorf("create CI job: no job ID returned")
+	}
+
+	a.logger.Info("CI job created", "job_id", jobID)
+
+	j := newCIJob(jobID, ci, a.scannerName, params)
+
+	ciJobLogger, ciBufHandler := newJobLogger(jobID, a.scannerName, a.config.logger)
+	j.(*job).logger = ciJobLogger
+
+	ciLogCtx, cancelCILog := context.WithCancel(ctx)
+	ciLogSender := &agentLogSender{client: a.client}
+	ciLt := newLogTransport(jobID, ciBufHandler, ciLogSender, a.config.logger)
+	var ciLogWg sync.WaitGroup
+	ciLogWg.Add(1)
+	go func() {
+		defer ciLogWg.Done()
+		ciLt.Run(ciLogCtx)
+	}()
+
+	ciJobLogger.Info("job started", "ci_provider", string(ci.Provider))
+	a.reportJobStarted(ctx, jobID)
+
+	if err := j.(*job).prepareRepository(ctx); err != nil {
+		a.reportJobFailed(ctx, jobID, fmt.Sprintf("prepare repo: %v", err))
+		cancelCILog()
+		ciLogWg.Wait()
+		return err
+	}
+	defer j.(*job).cleanupRepository()
+
+	hbCtx, cancelHB := context.WithCancel(ctx)
+	go a.jobHeartbeatLoop(hbCtx, jobID)
+
+	scanErr := a.scanner.Scan(ctx, j, func(res Result) {
+		a.importResult(ctx, jobID, res, "")
+	})
+
+	if scanErr != nil {
+		ciJobLogger.Error("job failed", "error", scanErr.Error())
+	} else {
+		ciJobLogger.Info("job completed")
+	}
+
+	cancelCILog()
+	ciLogWg.Wait()
+	cancelHB()
+
+	if scanErr != nil {
+		a.reportJobFailed(ctx, jobID, scanErr.Error())
+		return scanErr
+	}
+	a.reportJobCompleted(ctx, jobID)
+	return nil
+}
