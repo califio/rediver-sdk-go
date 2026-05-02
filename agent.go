@@ -14,9 +14,8 @@ import (
 	"github.com/califio/rediver-sdk-go/utils"
 )
 
-
 // agent is the internal per-scanner agent (unexported).
-type agent struct {
+type Agent struct {
 	scanner     Scanner
 	scannerName string        // scanner name in DB (normalized)
 	agentID     string        // from generate-token response
@@ -41,9 +40,10 @@ type agent struct {
 	mu sync.Mutex // guards token refresh
 }
 
-// newAgent creates a fully initialized agent by generating a token for the given scanner.
+// newAgentInternal creates a fully initialized agent by generating a token for the given scanner.
 // persistent=true for Worker/Dispatcher modes, false for Task/CI modes.
-func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, persistent, syncMetadata bool, config *runnerConfig) (*agent, error) {
+// Used by Runner.createAgents (legacy path). Removed in Phase 5.
+func newAgentInternal(ctx context.Context, s Scanner, clusterToken, serverURL string, persistent, syncMetadata bool, config *runnerConfig) (*Agent, error) {
 	hostname := config.hostname
 	if hostname == "" {
 		hostname = utils.GetIPAddress()
@@ -89,7 +89,7 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 	tm.SetToken(token)
 	tm.SetAgentID(agentID)
 
-	a := &agent{
+	a := &Agent{
 		scanner:      s,
 		scannerName:  scannerName,
 		agentID:      agentID,
@@ -118,5 +118,3 @@ func newAgent(ctx context.Context, s Scanner, clusterToken, serverURL string, pe
 
 	return a, nil
 }
-
-

@@ -17,7 +17,7 @@ type pollDoer interface {
 //
 //	polling:      waitSeconds=0 + clientSleep=pollInterval (legacy short-poll)
 //	long-polling: waitSeconds>0 + clientSleep=0 (server holds until job ready)
-func (a *agent) pollLoop(ctx context.Context) {
+func (a *Agent) pollLoop(ctx context.Context) {
 	waitSeconds, clientSleep := a.config.dispatchParams()
 	backoff := time.Second
 
@@ -68,7 +68,7 @@ func (a *agent) pollLoop(ctx context.Context) {
 
 // pullJob calls PollJob RPC. Returns ErrNoJobAvailable when no job is waiting.
 // Used by runOnce (task mode) and runDispatcher.
-func (a *agent) pullJob(ctx context.Context) (string, string, error) {
+func (a *Agent) pullJob(ctx context.Context) (string, string, error) {
 	jobID, scanner, err := a.client.DoPollJob(ctx, 0)
 	if err != nil {
 		return "", "", err

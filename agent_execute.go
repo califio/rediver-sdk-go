@@ -10,7 +10,7 @@ import (
 	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 )
 
-func (a *agent) executeJob(ctx context.Context, jobID string) error {
+func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 	a.logger.Info("executing job", "job_id", jobID)
 
 	detail, err := a.getJobDetail(ctx, jobID)
@@ -93,7 +93,7 @@ func (a *agent) executeJob(ctx context.Context, jobID string) error {
 	return nil
 }
 
-func (a *agent) getJobDetail(ctx context.Context, jobID string) (*agentv1.GetJobDetailResponse, error) {
+func (a *Agent) getJobDetail(ctx context.Context, jobID string) (*agentv1.GetJobDetailResponse, error) {
 	var detail *agentv1.GetJobDetailResponse
 	err := a.retrier.Do(ctx, func() error {
 		var err error
@@ -103,20 +103,20 @@ func (a *agent) getJobDetail(ctx context.Context, jobID string) (*agentv1.GetJob
 	return detail, err
 }
 
-func (a *agent) reportJobStarted(ctx context.Context, jobID string) {
+func (a *Agent) reportJobStarted(ctx context.Context, jobID string) {
 	_ = a.client.JobStart(ctx, jobID)
 }
 
-func (a *agent) reportJobCompleted(ctx context.Context, jobID string) {
+func (a *Agent) reportJobCompleted(ctx context.Context, jobID string) {
 	_ = a.client.JobCompleted(ctx, jobID)
 }
 
-func (a *agent) reportJobFailed(ctx context.Context, jobID string, description string) {
+func (a *Agent) reportJobFailed(ctx context.Context, jobID string, description string) {
 	_ = a.client.JobFailed(ctx, jobID, description)
 }
 
 type agentPoolJob struct {
-	a     *agent
+	a     *Agent
 	ctx   context.Context
 	jobID string
 }

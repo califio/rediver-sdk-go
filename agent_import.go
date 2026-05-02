@@ -8,7 +8,7 @@ import (
 
 const agentMaxBatchSize = 500
 
-func (a *agent) importResult(ctx context.Context, jobID string, res Result, headSHA string) {
+func (a *Agent) importResult(ctx context.Context, jobID string, res Result, headSHA string) {
 	if domains := res.GetDomains(); len(domains) > 0 {
 		a.importDomains(ctx, jobID, domains)
 	}
@@ -30,7 +30,7 @@ func (a *agent) importResult(ctx context.Context, jobID string, res Result, head
 	}
 }
 
-func (a *agent) importDomains(ctx context.Context, jobID string, domains []Domain) {
+func (a *Agent) importDomains(ctx context.Context, jobID string, domains []Domain) {
 	apiDomains := toProtoDomains(domains)
 	for i := 0; i < len(apiDomains); i += agentMaxBatchSize {
 		end := min(i+agentMaxBatchSize, len(apiDomains))
@@ -47,7 +47,7 @@ func (a *agent) importDomains(ctx context.Context, jobID string, domains []Domai
 	}
 }
 
-func (a *agent) importServices(ctx context.Context, jobID string, services []Service) {
+func (a *Agent) importServices(ctx context.Context, jobID string, services []Service) {
 	apiServices := toProtoServices(services)
 	for i := 0; i < len(apiServices); i += agentMaxBatchSize {
 		end := min(i+agentMaxBatchSize, len(apiServices))
@@ -64,7 +64,7 @@ func (a *agent) importServices(ctx context.Context, jobID string, services []Ser
 	}
 }
 
-func (a *agent) importWebFindings(ctx context.Context, jobID string, findings []WebFinding) {
+func (a *Agent) importWebFindings(ctx context.Context, jobID string, findings []WebFinding) {
 	err := a.retrier.Do(ctx, func() error {
 		return a.client.PushFindings(ctx, &agentv1.PushFindingsRequest{
 			JobId:       jobID,
@@ -76,7 +76,7 @@ func (a *agent) importWebFindings(ctx context.Context, jobID string, findings []
 	}
 }
 
-func (a *agent) importSASTFindings(ctx context.Context, jobID string, findings []SASTFinding) {
+func (a *Agent) importSASTFindings(ctx context.Context, jobID string, findings []SASTFinding) {
 	err := a.retrier.Do(ctx, func() error {
 		return a.client.PushFindings(ctx, &agentv1.PushFindingsRequest{
 			JobId:        jobID,

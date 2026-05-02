@@ -57,9 +57,9 @@ func TestNewAgent_TaskDirectJobIncludesJobIdInGenerateToken(t *testing.T) {
 	cfg.directJobID = "job-123"
 
 	scanner := NewScanner("calif-audit", []TargetType{TargetTypeRepository}, nil)
-	agent, err := newAgent(context.Background(), scanner, "cluster-token", serverURL, false, false, cfg)
+	agent, err := newAgentInternal(context.Background(), scanner, "cluster-token", serverURL, false, false, cfg)
 	if err != nil {
-		t.Fatalf("newAgent() error = %v", err)
+		t.Fatalf("newAgentInternal() error = %v", err)
 	}
 	if agent == nil {
 		t.Fatal("expected agent to be created")
@@ -91,9 +91,9 @@ func TestNewAgent_TaskPollDoesNotIncludeJobIdInGenerateToken(t *testing.T) {
 	// directJobID deliberately omitted
 
 	scanner := NewScanner("calif-audit", []TargetType{TargetTypeRepository}, nil)
-	agent, err := newAgent(context.Background(), scanner, "cluster-token", serverURL, false, false, cfg)
+	agent, err := newAgentInternal(context.Background(), scanner, "cluster-token", serverURL, false, false, cfg)
 	if err != nil {
-		t.Fatalf("newAgent() error = %v", err)
+		t.Fatalf("newAgentInternal() error = %v", err)
 	}
 	if agent == nil {
 		t.Fatal("expected agent to be created")

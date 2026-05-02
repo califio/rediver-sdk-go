@@ -9,7 +9,7 @@ import (
 )
 
 // runCI runs CI mode: detect git context, create job, execute, revoke token, return.
-func (a *agent) runCI(ctx context.Context) error {
+func (a *Agent) runCI(ctx context.Context) error {
 	ci := a.detectGitContext()
 	if ci == nil {
 		_ = a.tokenManager.RevokeToken(ctx)
@@ -39,7 +39,7 @@ func (a *agent) runCI(ctx context.Context) error {
 	return err
 }
 
-func (a *agent) detectGitContext() *CIContext {
+func (a *Agent) detectGitContext() *CIContext {
 	ci := DetectGitContext()
 	if a.config.repoDir != "" {
 		if ci == nil {
@@ -51,7 +51,7 @@ func (a *agent) detectGitContext() *CIContext {
 	return ci
 }
 
-func (a *agent) executeCIJob(ctx context.Context, ci *CIContext) error {
+func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 	params := resolveParamsFromEnv(a.scanner.Params(), ci.Parameters)
 
 	apiReq := ciContextToProtoRequest(ci, a.scannerName)

@@ -6,7 +6,7 @@ import (
 )
 
 // runOnce runs Task mode: poll one job, execute it, revoke token, return.
-func (a *agent) runOnce(ctx context.Context) error {
+func (a *Agent) runOnce(ctx context.Context) error {
 	var jobID string
 	if a.config.directJobID != "" {
 		jobID = a.config.directJobID

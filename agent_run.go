@@ -6,7 +6,7 @@ import (
 )
 
 // run starts the Worker mode lifecycle: heartbeat + poll loops.
-func (a *agent) run(ctx context.Context) error {
+func (a *Agent) run(ctx context.Context) error {
 	a.drainCtx, a.cancelDrain = context.WithCancel(context.Background())
 	defer a.cancelDrain()
 

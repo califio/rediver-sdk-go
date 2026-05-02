@@ -8,7 +8,7 @@ import (
 )
 
 // runDispatcher runs Dispatcher mode: heartbeat + poll loops, calling handler instead of executing.
-func (a *agent) runDispatcher(ctx context.Context, handler JobHandler) error {
+func (a *Agent) runDispatcher(ctx context.Context, handler JobHandler) error {
 	a.drainCtx, a.cancelDrain = context.WithCancel(context.Background())
 	defer a.cancelDrain()
 

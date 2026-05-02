@@ -10,7 +10,7 @@ import (
 // syncScannerMetadata pushes scanner-declared metadata (display name, params schema,
 // asset types, retest support) to the backend on agent startup. Errors are logged,
 // not fatal — metadata sync is best-effort.
-func (a *agent) syncScannerMetadata(ctx context.Context) {
+func (a *Agent) syncScannerMetadata(ctx context.Context) {
 	name := a.scanner.Name()
 	req := &agentv1.UpdateScannerRequest{Name: name}
 	var needsUpdate bool

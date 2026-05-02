@@ -142,7 +142,7 @@ func TestDispatchParams(t *testing.T) {
 // newTestAgent builds a minimal agent suitable for pollLoop testing.
 // It does NOT call newAgent (which dials a real server); it constructs the struct directly.
 // cfgFn is called after applying opts and allows direct field overrides (bypassing option guards).
-func newTestAgent(t *testing.T, opts []Option, cfgFn func(*runnerConfig)) *agent {
+func newTestAgent(t *testing.T, opts []Option, cfgFn func(*runnerConfig)) *Agent {
 	t.Helper()
 	cfg := defaultAgentConfig()
 	for _, o := range opts {
@@ -159,7 +159,7 @@ func newTestAgent(t *testing.T, opts []Option, cfgFn func(*runnerConfig)) *agent
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	return &agent{
+	return &Agent{
 		config:      cfg,
 		pool:        pool,
 		drainCtx:    drainCtx,

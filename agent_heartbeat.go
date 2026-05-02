@@ -10,7 +10,7 @@ const (
 	jobHeartbeatInterval   = 60 * time.Second
 )
 
-func (a *agent) heartbeatLoop(ctx context.Context) {
+func (a *Agent) heartbeatLoop(ctx context.Context) {
 	ticker := time.NewTicker(agentHeartbeatInterval)
 	defer ticker.Stop()
 
@@ -26,7 +26,7 @@ func (a *agent) heartbeatLoop(ctx context.Context) {
 	}
 }
 
-func (a *agent) jobHeartbeatLoop(ctx context.Context, jobID string) {
+func (a *Agent) jobHeartbeatLoop(ctx context.Context, jobID string) {
 	ticker := time.NewTicker(jobHeartbeatInterval)
 	defer ticker.Stop()
 
