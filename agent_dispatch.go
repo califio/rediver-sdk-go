@@ -3,6 +3,7 @@ package rediver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -52,4 +53,22 @@ func (a *Agent) runDispatcher(ctx context.Context, handler JobHandler) error {
 			}()
 		}
 	}
+}
+
+// Dispatch runs Dispatcher mode: persistent token, poll loop hands jobs to
+// handler instead of executing them locally. The handler is responsible for
+// forwarding the job to an external worker.
+//
+// Returns ErrAlreadyRunning if this Agent has already started.
+func (a *Agent) Dispatch(ctx context.Context, handler JobHandler) error {
+	if handler == nil {
+		return fmt.Errorf("%w: handler must be non-nil", ErrInvalidConfig)
+	}
+	if !a.running.CompareAndSwap(false, true) {
+		return ErrAlreadyRunning
+	}
+	if err := a.initSession(ctx, true, a.config.syncMetadataDispatcher, ""); err != nil {
+		return err
+	}
+	return a.runDispatcher(ctx, handler)
 }

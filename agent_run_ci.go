@@ -130,3 +130,18 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 	a.reportJobCompleted(ctx, jobID)
 	return nil
 }
+
+// RunCI runs CI mode: ephemeral token, detects git context, calls CreateCiJob,
+// executes, revokes token, returns. Errors if scanner does not declare
+// TargetTypeRepository.
+//
+// Returns ErrAlreadyRunning if this Agent has already started.
+func (a *Agent) RunCI(ctx context.Context) error {
+	if !a.running.CompareAndSwap(false, true) {
+		return ErrAlreadyRunning
+	}
+	if err := a.initSession(ctx, false, false, ""); err != nil {
+		return err
+	}
+	return a.runCI(ctx)
+}

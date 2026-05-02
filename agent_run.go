@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+
 // run starts the Worker mode lifecycle: heartbeat + poll loops.
 func (a *Agent) run(ctx context.Context) error {
 	a.drainCtx, a.cancelDrain = context.WithCancel(context.Background())
@@ -40,4 +41,19 @@ func (a *Agent) run(ctx context.Context) error {
 
 	a.cancelDrain()
 	return nil
+}
+
+// Run starts Worker mode: persistent token, long-running poll loop with worker
+// pool, and agent heartbeat. Survives ctx cancellation up to shutdownTimeout
+// to drain in-flight jobs.
+//
+// Returns ErrAlreadyRunning if this Agent has already started.
+func (a *Agent) Run(ctx context.Context) error {
+	if !a.running.CompareAndSwap(false, true) {
+		return ErrAlreadyRunning
+	}
+	if err := a.initSession(ctx, true, true, ""); err != nil {
+		return err
+	}
+	return a.run(ctx)
 }
