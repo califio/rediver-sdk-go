@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 	"connectrpc.com/connect"
@@ -119,8 +120,20 @@ func (t *authRetryTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 // DoPollJob calls PollJob RPC and returns (jobID, scanner, error).
 // Returns ("", "", nil) when no job is available.
-func (c *Client) DoPollJob(ctx context.Context) (string, string, error) {
-	resp, err := c.Job.PollJob(ctx, connect.NewRequest(&agentv1.PollJobRequest{}))
+//
+// waitSeconds > 0 enables long-poll: the server holds the request until a job
+// becomes available or the deadline is reached. Pass 0 for legacy short-poll.
+func (c *Client) DoPollJob(ctx context.Context, waitSeconds int32) (string, string, error) {
+	if waitSeconds > 0 {
+		var cancel context.CancelFunc
+		// Add a 5-second buffer on top of the server wait to avoid premature
+		// client-side timeout while the server is still holding the request.
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(waitSeconds+5)*time.Second)
+		defer cancel()
+	}
+	resp, err := c.Job.PollJob(ctx, connect.NewRequest(&agentv1.PollJobRequest{
+		WaitSeconds: waitSeconds,
+	}))
 	if err != nil {
 		return "", "", fmt.Errorf("poll-job: %w", err)
 	}

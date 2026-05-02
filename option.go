@@ -1,6 +1,7 @@
 package rediver
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -8,6 +9,24 @@ import (
 	"time"
 
 	"github.com/califio/rediver-sdk-go/internal/auth"
+)
+
+// DispatchMode controls how PollJob requests are issued.
+type DispatchMode string
+
+const (
+	// DispatchPolling is the legacy mode: client-side ticker, server returns
+	// immediately. Default.
+	DispatchPolling DispatchMode = "polling"
+	// DispatchLongPolling: client sends wait_seconds; server holds the request
+	// until a job is available or the deadline is hit. No client-side sleep
+	// between calls. Recommended for low-latency dispatch.
+	DispatchLongPolling DispatchMode = "long-polling"
+)
+
+const (
+	defaultLongPollWait = 30 * time.Second
+	maxLongPollWait     = 60 * time.Second
 )
 
 // RunMode determines the agent execution mode.
@@ -32,6 +51,8 @@ type runnerConfig struct {
 	runMode                RunMode
 	maxConcurrency         int
 	pollInterval           time.Duration
+	dispatchMode           DispatchMode
+	longPollWait           time.Duration
 	version                string
 	hostname               string
 	shutdownTimeout        time.Duration
@@ -39,6 +60,19 @@ type runnerConfig struct {
 	jobHandler             JobHandler
 	directJobID            string // if set, skip poll and execute this job directly (RunDirect)
 	syncMetadataDispatcher bool   // allow Dispatcher mode to sync scanner metadata on startup
+}
+
+// dispatchParams returns (waitSeconds, clientSleep) used by the poll loop.
+//
+//	polling:      (0, pollInterval) — server returns immediately, client sleeps.
+//	long-polling: (longPollWait_seconds, 0) — server holds, client doesn't sleep.
+func (c *runnerConfig) dispatchParams() (int32, time.Duration) {
+	switch c.dispatchMode {
+	case DispatchLongPolling:
+		return int32(c.longPollWait.Seconds()), 0
+	default:
+		return 0, c.pollInterval
+	}
 }
 
 func defaultAgentConfig() *runnerConfig {
@@ -50,6 +84,8 @@ func defaultAgentConfig() *runnerConfig {
 		runMode:         resolveRunMode(),
 		maxConcurrency:  1,
 		pollInterval:    5 * time.Second,
+		dispatchMode:    DispatchPolling,
+		longPollWait:    defaultLongPollWait,
 		shutdownTimeout: 0, // wait forever
 		hostname:        hostname,
 	}
@@ -116,10 +152,36 @@ func WithMaxConcurrency(n int) Option {
 }
 
 // WithPollInterval sets the polling interval. Default: 5s, min: 1s.
+// Has no effect in DispatchLongPolling mode (server holds the request instead).
 func WithPollInterval(d time.Duration) Option {
 	return func(c *runnerConfig) {
 		if d >= 1*time.Second {
 			c.pollInterval = d
+		}
+	}
+}
+
+// WithDispatchMode selects how PollJob requests are issued. Default is
+// DispatchPolling (legacy short-poll). DispatchLongPolling has the server
+// hold the request until a job is available or wait timeout — much lower
+// dispatch latency, no client-side sleep between calls.
+func WithDispatchMode(m DispatchMode) Option {
+	return func(c *runnerConfig) {
+		switch m {
+		case DispatchPolling, DispatchLongPolling:
+			c.dispatchMode = m
+		default:
+			panic(fmt.Sprintf("rediver: invalid dispatch mode %q", m))
+		}
+	}
+}
+
+// WithLongPollWait sets the server-side hold duration for long-polling mode.
+// Default 30s. Must be in (0, 60s]. No effect in polling mode.
+func WithLongPollWait(d time.Duration) Option {
+	return func(c *runnerConfig) {
+		if d > 0 && d <= maxLongPollWait {
+			c.longPollWait = d
 		}
 	}
 }
