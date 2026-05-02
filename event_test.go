@@ -19,6 +19,34 @@ func TestNewLog(t *testing.T) {
 	}
 }
 
+func TestNewToolUseStart(t *testing.T) {
+	ev := NewToolUseStart("t1", "read_file", map[string]any{"path": "/etc/passwd"})
+	if ev.Type != EventToolUseStart {
+		t.Errorf("type: got %v, want %v", ev.Type, EventToolUseStart)
+	}
+	p, ok := ev.Payload.(ToolUseStartPayload)
+	if !ok {
+		t.Fatalf("payload: got %T", ev.Payload)
+	}
+	if p.ToolID != "t1" || p.Name != "read_file" {
+		t.Errorf("got %+v", p)
+	}
+}
+
+func TestNewToolUseEnd(t *testing.T) {
+	ev := NewToolUseEnd("t1", "ok", false)
+	if ev.Type != EventToolUseEnd {
+		t.Errorf("type: got %v, want %v", ev.Type, EventToolUseEnd)
+	}
+	p, ok := ev.Payload.(ToolUseEndPayload)
+	if !ok {
+		t.Fatalf("payload: got %T", ev.Payload)
+	}
+	if p.ToolID != "t1" || p.IsError {
+		t.Errorf("got %+v", p)
+	}
+}
+
 func TestEventType_IsEphemeral(t *testing.T) {
 	cases := []struct {
 		t    EventType
