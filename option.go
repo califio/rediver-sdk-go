@@ -79,7 +79,11 @@ func defaultAgentConfig() *runnerConfig {
 	hostname, _ := os.Hostname()
 	return &runnerConfig{
 		logger:          slog.Default(),
-		httpClient:      &http.Client{Timeout: 30 * time.Second},
+		// 90s default accommodates long-poll mode (server holds up to 60s,
+		// SDK wraps ctx with waitSeconds+5s = 65s) without HTTP client timing
+		// out before the ctx deadline. Short-poll mode is unaffected — empty
+		// PollJob returns immediately, well under 90s.
+		httpClient:      &http.Client{Timeout: 90 * time.Second},
 		retryPolicy:     DefaultRetryPolicy(),
 		runMode:         resolveRunMode(),
 		maxConcurrency:  1,

@@ -12,8 +12,8 @@ import (
 func TestDefaultAgentConfig(t *testing.T) {
 	cfg := defaultAgentConfig()
 
-	if cfg.httpClient.Timeout != 30*time.Second {
-		t.Errorf("httpClient.Timeout: got %v, want 30s", cfg.httpClient.Timeout)
+	if cfg.httpClient.Timeout != 90*time.Second {
+		t.Errorf("httpClient.Timeout: got %v, want 90s", cfg.httpClient.Timeout)
 	}
 	if cfg.maxConcurrency != 1 {
 		t.Errorf("maxConcurrency: got %d, want 1", cfg.maxConcurrency)
