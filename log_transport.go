@@ -85,7 +85,7 @@ func (s *agentLogSender) SendJobLogs(ctx context.Context, jobID string, sequence
 	protoEntries := make([]*structpb.Struct, 0, len(entries))
 	for _, e := range entries {
 		fields := map[string]interface{}{
-			"level":     int64(e.Level),
+			"level":     string(e.Level),
 			"message":   e.Message,
 			"timestamp": e.Timestamp,
 			"job_id":    e.JobID,

@@ -7,32 +7,8 @@ import (
 	"time"
 )
 
-// LogLevel represents log severity.
-type LogLevel int
-
-const (
-	LogLevelDebug LogLevel = iota
-	LogLevelInfo
-	LogLevelWarn
-	LogLevelError
-)
-
-func (l LogLevel) String() string {
-	switch l {
-	case LogLevelDebug:
-		return "DEBUG"
-	case LogLevelInfo:
-		return "INFO"
-	case LogLevelWarn:
-		return "WARN"
-	case LogLevelError:
-		return "ERROR"
-	default:
-		return "UNKNOWN"
-	}
-}
-
-// slogLevelToLogLevel converts slog.Level to LogLevel.
+// slogLevelToLogLevel maps slog severity to rediver LogLevel.
+// Defined here temporarily; moved to slog_adapter.go in Task 1.6.
 func slogLevelToLogLevel(l slog.Level) LogLevel {
 	switch {
 	case l < slog.LevelInfo:
