@@ -21,9 +21,7 @@ import (
 )
 
 const (
-	agentHeartbeatInterval = 60 * time.Second
-	jobHeartbeatInterval   = 60 * time.Second
-	agentMaxBatchSize      = 500
+	agentMaxBatchSize = 500
 )
 
 // agent is the internal per-scanner agent (unexported).
@@ -272,24 +270,6 @@ func (a *agent) runDispatcher(ctx context.Context, handler JobHandler) error {
 	}
 }
 
-// --- Heartbeat ---
-
-func (a *agent) heartbeatLoop(ctx context.Context) {
-	ticker := time.NewTicker(agentHeartbeatInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := a.client.AgentHeartbeat(ctx); err != nil {
-				a.logger.Warn("heartbeat failed", "error", err)
-			}
-		}
-	}
-}
-
 // --- Job execution ---
 
 func (a *agent) executeJob(ctx context.Context, jobID string) error {
@@ -397,22 +377,6 @@ func (a *agent) reportJobCompleted(ctx context.Context, jobID string) {
 
 func (a *agent) reportJobFailed(ctx context.Context, jobID string, description string) {
 	_ = a.client.JobFailed(ctx, jobID, description)
-}
-
-func (a *agent) jobHeartbeatLoop(ctx context.Context, jobID string) {
-	ticker := time.NewTicker(jobHeartbeatInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := a.client.JobHeartbeat(ctx, jobID); err != nil {
-				a.logger.Warn("job heartbeat failed", "job_id", jobID, "error", err)
-			}
-		}
-	}
 }
 
 // --- Import results ---
