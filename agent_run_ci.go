@@ -82,17 +82,19 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 
 	j := newCIJob(jobID, ci, a.scannerName, params)
 
-	ciJobLogger, ciBufHandler := newJobLogger(jobID, a.scannerName, a.config.logger)
+	ciJobLogger := a.config.logger.With("job_id", jobID, "scanner", a.scannerName)
 	j.(*job).logger = ciJobLogger
 
-	ciLogCtx, cancelCILog := context.WithCancel(ctx)
-	ciLogSender := &agentLogSender{client: a.client}
-	ciLt := newLogTransport(jobID, ciBufHandler, ciLogSender, a.config.logger)
-	var ciLogWg sync.WaitGroup
-	ciLogWg.Add(1)
+	ciEventCtx, cancelCIEvents := context.WithCancel(ctx)
+	ciSender := &agentEventSender{client: a.client}
+	ciTr := newEventTransport(jobID, ciSender, ciJobLogger, 0, 0, 0)
+	j.(*job).transport = ciTr
+
+	var ciEventWg sync.WaitGroup
+	ciEventWg.Add(1)
 	go func() {
-		defer ciLogWg.Done()
-		ciLt.Run(ciLogCtx)
+		defer ciEventWg.Done()
+		ciTr.Run(ciEventCtx)
 	}()
 
 	ciJobLogger.Info("job started", "ci_provider", string(ci.Provider))
@@ -100,8 +102,8 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 
 	if err := j.(*job).prepareRepository(ctx); err != nil {
 		a.reportJobFailed(ctx, jobID, fmt.Sprintf("prepare repo: %v", err))
-		cancelCILog()
-		ciLogWg.Wait()
+		cancelCIEvents()
+		ciEventWg.Wait()
 		return err
 	}
 	defer j.(*job).cleanupRepository()
@@ -119,8 +121,8 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 		ciJobLogger.Info("job completed")
 	}
 
-	cancelCILog()
-	ciLogWg.Wait()
+	cancelCIEvents()
+	ciEventWg.Wait()
 	cancelHB()
 
 	if scanErr != nil {

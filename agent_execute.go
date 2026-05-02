@@ -27,17 +27,19 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 	if detail.Scanner != "" {
 		scannerName = strings.ToLower(detail.Scanner)
 	}
-	jobLogger, bufHandler := newJobLogger(jobID, scannerName, a.config.logger)
+	jobLogger := a.config.logger.With("job_id", jobID, "scanner", scannerName)
 	j.(*job).logger = jobLogger
 
-	logCtx, cancelLog := context.WithCancel(ctx)
-	logSender := &agentLogSender{client: a.client}
-	lt := newLogTransport(jobID, bufHandler, logSender, a.config.logger)
-	var logWg sync.WaitGroup
-	logWg.Add(1)
+	eventCtx, cancelEvents := context.WithCancel(ctx)
+	sender := &agentEventSender{client: a.client}
+	tr := newEventTransport(jobID, sender, jobLogger, 0, 0, 0)
+	j.(*job).transport = tr
+
+	var eventWg sync.WaitGroup
+	eventWg.Add(1)
 	go func() {
-		defer logWg.Done()
-		lt.Run(logCtx)
+		defer eventWg.Done()
+		tr.Run(eventCtx)
 	}()
 
 	jobLogger.Info("job started", "scanner", scannerName)
@@ -57,8 +59,8 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 		jobLogger.Info("preparing repository", attrs...)
 		if err := j.(*job).prepareRepository(ctx); err != nil {
 			a.reportJobFailed(ctx, jobID, fmt.Sprintf("prepare repo: %v", err))
-			cancelLog()
-			logWg.Wait()
+			cancelEvents()
+			eventWg.Wait()
 			return err
 		}
 		defer j.(*job).cleanupRepository()
@@ -81,8 +83,8 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 		jobLogger.Info("job completed")
 	}
 
-	cancelLog()
-	logWg.Wait()
+	cancelEvents()
+	eventWg.Wait()
 	cancelHB()
 
 	if scanErr != nil {
