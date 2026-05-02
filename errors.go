@@ -38,6 +38,10 @@ var (
 
 	// ErrClusterRevoked indicates the cluster token was revoked (HTTP 4xx during refresh).
 	ErrClusterRevoked = errors.New("rediver: cluster token revoked")
+
+	// ErrAlreadyRunning is returned when a lifecycle method is called on an Agent
+	// that has already started. Agents are one-shot; create a new Agent to restart.
+	ErrAlreadyRunning = errors.New("rediver: agent already running")
 )
 
 // JobError wraps an error with job context.
