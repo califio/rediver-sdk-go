@@ -31,24 +31,22 @@ type Runner struct {
 // serverURL and clusterToken are resolved from REDIVER_URL / REDIVER_TOKEN env vars
 // if the arguments are empty strings.
 func NewRunner(serverURL, clusterToken string, opts ...Option) (*Runner, error) {
-	if serverURL == "" {
-		if env := resolveServerURL(""); env != "" {
-			serverURL = env
-		} else {
-			return nil, fmt.Errorf("%w: server URL is required (set REDIVER_URL or pass as argument)", ErrInvalidConfig)
-		}
-	}
-	if clusterToken == "" {
-		if env := resolveClusterToken(""); env != "" {
-			clusterToken = env
-		} else {
-			return nil, fmt.Errorf("%w: cluster token is required (set REDIVER_TOKEN or pass as argument)", ErrInvalidConfig)
-		}
-	}
-
 	config := defaultAgentConfig()
 	for _, opt := range opts {
 		opt(config)
+	}
+
+	// Resolution priority for serverURL: positional arg → option → env → default
+	if serverURL == "" {
+		serverURL = config.serverURL
+	}
+	serverURL = resolveServerURL(serverURL)
+
+	if clusterToken == "" {
+		clusterToken = resolveClusterToken("")
+		if clusterToken == "" {
+			return nil, fmt.Errorf("%w: cluster token is required (set REDIVER_TOKEN or pass as argument)", ErrInvalidConfig)
+		}
 	}
 
 	return &Runner{
@@ -304,9 +302,14 @@ func resolveClusterToken(explicit string) string {
 	return strings.TrimSpace(os.Getenv("REDIVER_TOKEN"))
 }
 
+// resolveServerURL returns the server URL using priority:
+// explicit (option/arg) → REDIVER_URL env → DefaultServerURL.
 func resolveServerURL(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	return strings.TrimSpace(os.Getenv("REDIVER_URL"))
+	if env := strings.TrimSpace(os.Getenv("REDIVER_URL")); env != "" {
+		return env
+	}
+	return DefaultServerURL
 }
