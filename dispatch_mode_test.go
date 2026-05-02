@@ -142,7 +142,7 @@ func TestDispatchParams(t *testing.T) {
 // newTestAgent builds a minimal agent suitable for pollLoop testing.
 // It does NOT call newAgent (which dials a real server); it constructs the struct directly.
 // cfgFn is called after applying opts and allows direct field overrides (bypassing option guards).
-func newTestAgent(t *testing.T, opts []Option, cfgFn func(*runnerConfig)) *Agent {
+func newTestAgent(t *testing.T, opts []Option, cfgFn func(*agentConfig)) *Agent {
 	t.Helper()
 	cfg := defaultAgentConfig()
 	for _, o := range opts {
@@ -176,7 +176,7 @@ func TestPollLoop_DispatchModes(t *testing.T) {
 		opts             []Option
 		// cfgFn allows direct config overrides that bypass option-level guards
 		// (e.g. pollInterval minimum of 1s).
-		cfgFn            func(*runnerConfig)
+		cfgFn            func(*agentConfig)
 		wantWaitSeconds  int32
 		minExpectedCalls int32
 		// runWindow is how long we let pollLoop run before canceling.
@@ -186,7 +186,7 @@ func TestPollLoop_DispatchModes(t *testing.T) {
 			name: "polling sends waitSeconds=0 and is rate-limited by clientSleep",
 			opts: []Option{WithDispatchMode(DispatchPolling)},
 			// Set pollInterval to 50ms directly — WithPollInterval enforces ≥1s.
-			cfgFn:            func(c *runnerConfig) { c.pollInterval = 50 * time.Millisecond },
+			cfgFn:            func(c *agentConfig) { c.pollInterval = 50 * time.Millisecond },
 			wantWaitSeconds:  0,
 			minExpectedCalls: 3, // ≥3 calls in 300ms window with 50ms sleep
 			runWindow:        300 * time.Millisecond,

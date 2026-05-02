@@ -22,7 +22,7 @@ type Agent struct {
 	clusterToken string        // set in NewAgent, used by lifecycle methods to gen token
 	serverURL    string        // set in NewAgent
 	agentID      string        // set after token gen
-	config       *runnerConfig // shared from Runner (read-only after creation)
+	config       *agentConfig // shared config (read-only after creation)
 	token        atomic.Value  // stores string — current agent token
 
 	tokenManager *auth.TokenManager // per-agent token lifecycle

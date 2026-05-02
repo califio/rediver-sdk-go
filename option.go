@@ -30,8 +30,8 @@ const (
 	DefaultServerURL = "https://api.rediver.ai"
 )
 
-// runnerConfig holds Agent configuration.
-type runnerConfig struct {
+// agentConfig holds Agent configuration.
+type agentConfig struct {
 	logger                 *slog.Logger
 	httpClient             *http.Client
 	retryPolicy            RetryPolicy
@@ -51,7 +51,7 @@ type runnerConfig struct {
 //
 //	polling:      (0, pollInterval) — server returns immediately, client sleeps.
 //	long-polling: (longPollWait_seconds, 0) — server holds, client doesn't sleep.
-func (c *runnerConfig) dispatchParams() (int32, time.Duration) {
+func (c *agentConfig) dispatchParams() (int32, time.Duration) {
 	switch c.dispatchMode {
 	case DispatchLongPolling:
 		return int32(c.longPollWait.Seconds()), 0
@@ -60,9 +60,9 @@ func (c *runnerConfig) dispatchParams() (int32, time.Duration) {
 	}
 }
 
-func defaultAgentConfig() *runnerConfig {
+func defaultAgentConfig() *agentConfig {
 	hostname, _ := os.Hostname()
-	return &runnerConfig{
+	return &agentConfig{
 		logger: slog.Default(),
 		// 90s default accommodates long-poll mode (server holds up to 60s,
 		// SDK wraps ctx with waitSeconds+5s = 65s) without HTTP client timing
@@ -80,15 +80,13 @@ func defaultAgentConfig() *runnerConfig {
 }
 
 // Option configures an Agent.
-type Option func(*runnerConfig)
+type Option func(*agentConfig)
 
-// RunnerOption is an alias for Option.
-type RunnerOption = Option
 
 // WithDispatcherMetadataSync enables scanner metadata sync when running in Dispatcher mode.
 // Disabled by default because not every dispatcher owns scanner configuration in the backend.
 func WithDispatcherMetadataSync() Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		c.syncMetadataDispatcher = true
 	}
 }
@@ -96,7 +94,7 @@ func WithDispatcherMetadataSync() Option {
 // WithMaxConcurrency sets the maximum number of concurrent jobs per scanner.
 // Default is 1.
 func WithMaxConcurrency(n int) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		if n > 0 {
 			c.maxConcurrency = n
 		}
@@ -106,7 +104,7 @@ func WithMaxConcurrency(n int) Option {
 // WithPollInterval sets the polling interval. Default: 5s, min: 1s.
 // Has no effect in DispatchLongPolling mode (server holds the request instead).
 func WithPollInterval(d time.Duration) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		if d >= 1*time.Second {
 			c.pollInterval = d
 		}
@@ -118,7 +116,7 @@ func WithPollInterval(d time.Duration) Option {
 // hold the request until a job is available or wait timeout — much lower
 // dispatch latency, no client-side sleep between calls.
 func WithDispatchMode(m DispatchMode) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		switch m {
 		case DispatchPolling, DispatchLongPolling:
 			c.dispatchMode = m
@@ -131,7 +129,7 @@ func WithDispatchMode(m DispatchMode) Option {
 // WithLongPollWait sets the server-side hold duration for long-polling mode.
 // Default 30s. Must be in (0, 60s]. No effect in polling mode.
 func WithLongPollWait(d time.Duration) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		if d > 0 && d <= maxLongPollWait {
 			c.longPollWait = d
 		}
@@ -140,21 +138,21 @@ func WithLongPollWait(d time.Duration) Option {
 
 // WithVersion sets the agent version string for token generation.
 func WithVersion(v string) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		c.version = v
 	}
 }
 
 // WithHostname sets the hostname sent during token generation.
 func WithHostname(h string) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		c.hostname = h
 	}
 }
 
 // WithLogger sets a custom slog logger.
 func WithLogger(logger *slog.Logger) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		if logger != nil {
 			c.logger = logger
 		}
@@ -163,14 +161,14 @@ func WithLogger(logger *slog.Logger) Option {
 
 // WithRetry sets the retry policy.
 func WithRetry(policy RetryPolicy) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		c.retryPolicy = policy
 	}
 }
 
 // WithHTTPClient sets a custom HTTP client.
 func WithHTTPClient(client *http.Client) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		if client != nil {
 			c.httpClient = client
 		}
@@ -179,7 +177,7 @@ func WithHTTPClient(client *http.Client) Option {
 
 // WithShutdownTimeout sets graceful shutdown timeout. 0 = wait forever (default).
 func WithShutdownTimeout(d time.Duration) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		c.shutdownTimeout = d
 	}
 }
@@ -196,7 +194,7 @@ func WithRetryAggressive() Option {
 
 // WithRepoDir overrides the repository directory for CI mode scanning.
 func WithRepoDir(path string) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		c.repoDir = path
 	}
 }
@@ -209,7 +207,7 @@ func WithNoRetry() Option {
 // WithServerURL sets the Rediver API server URL. Overrides REDIVER_URL env.
 // Default: DefaultServerURL ("https://api.rediver.ai").
 func WithServerURL(url string) Option {
-	return func(c *runnerConfig) {
+	return func(c *agentConfig) {
 		c.serverURL = url
 	}
 }
