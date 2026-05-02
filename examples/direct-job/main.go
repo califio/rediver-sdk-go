@@ -1,5 +1,5 @@
 // Example direct job execution demonstrating RunOnce for orchestrated single-shot workflows.
-// The runner polls once for a pending job, executes it, revokes the token, and exits.
+// The agent polls once for a pending job, executes it, revokes the token, and exits.
 // Set REDIVER_JOB_ID in the environment if you need the server to assign a specific job;
 // otherwise the server assigns the next available job for the registered scanner.
 package main
@@ -17,23 +17,18 @@ import (
 func main() {
 	godotenv.Load()
 
-	runner, err := rediver.NewRunner(
-		os.Getenv("REDIVER_URL"),
-		os.Getenv("REDIVER_TOKEN"),
+	agent, err := rediver.NewAgent(os.Getenv("REDIVER_TOKEN"),
+		rediver.NewScanner("nuclei",
+			[]rediver.TargetType{rediver.TargetTypeService},
+			nucleiHandler,
+		),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := runner.Add(rediver.NewScanner("nuclei",
-		[]rediver.TargetType{rediver.TargetTypeService},
-		nucleiHandler,
-	)); err != nil {
-		log.Fatal(err)
-	}
-
 	// RunOnce: poll once -> execute -> revoke token -> exit
-	if err := runner.RunOnce(context.Background()); err != nil {
+	if err := agent.RunOnce(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("direct job complete, token revoked")

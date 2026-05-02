@@ -37,9 +37,9 @@ func (s *dispatchTokenService) GenerateToken(_ context.Context, req *connect.Req
 type dispatchAgentService struct {
 	agentv1connect.UnimplementedAgentServiceHandler
 
-	mu          sync.Mutex
-	updateReqs  []*agentv1.UpdateScannerRequest
-	updateSeen  chan struct{}
+	mu         sync.Mutex
+	updateReqs []*agentv1.UpdateScannerRequest
+	updateSeen chan struct{}
 }
 
 func (s *dispatchAgentService) Heartbeat(_ context.Context, _ *connect.Request[agentv1.HeartbeatRequest]) (*connect.Response[agentv1.HeartbeatResponse], error) {
@@ -105,22 +105,20 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 		"additionalProperties": false,
 	}
 
-	runner, err := NewRunner(serverURL, "cluster-token",
+	agent, err := NewAgent("cluster-token",
+		NewScanner(
+			"calif-audit",
+			[]TargetType{TargetTypeRepository, TargetTypeService},
+			nil,
+			WithDisplayName("Calif Audit"),
+			WithRawParamsSchema(schema),
+		),
+		WithServerURL(serverURL),
 		WithDispatcherMetadataSync(),
 		WithPollInterval(time.Second),
 	)
 	if err != nil {
-		t.Fatalf("NewRunner() error = %v", err)
-	}
-
-	if err := runner.Add(NewScanner(
-		"calif-audit",
-		[]TargetType{TargetTypeRepository, TargetTypeService},
-		nil,
-		WithDisplayName("Calif Audit"),
-		WithRawParamsSchema(schema),
-	)); err != nil {
-		t.Fatalf("Add() error = %v", err)
+		t.Fatalf("NewAgent() error = %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -128,7 +126,7 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runner.Dispatch(ctx, func(context.Context, PulledJob) error { return nil })
+		done <- agent.Dispatch(ctx, func(context.Context, PulledJob) error { return nil })
 	}()
 
 	select {

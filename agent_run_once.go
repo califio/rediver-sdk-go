@@ -6,10 +6,11 @@ import (
 )
 
 // runOnce runs Task mode: poll one job, execute it, revoke token, return.
-func (a *Agent) runOnce(ctx context.Context) error {
+// directJobID skips polling and executes that job directly when non-empty.
+func (a *Agent) runOnce(ctx context.Context, directJobID string) error {
 	var jobID string
-	if a.config.directJobID != "" {
-		jobID = a.config.directJobID
+	if directJobID != "" {
+		jobID = directJobID
 		a.logger.Info("direct job execution", "job_id", jobID)
 	} else {
 		var err error
@@ -46,6 +47,5 @@ func (a *Agent) RunOnce(ctx context.Context, jobID ...string) error {
 	if err := a.initSession(ctx, false, false, directJobID); err != nil {
 		return err
 	}
-	a.config.directJobID = directJobID // runOnce reads from config — temporary until Phase 5 cleanup
-	return a.runOnce(ctx)
+	return a.runOnce(ctx, directJobID)
 }

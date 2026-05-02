@@ -45,23 +45,15 @@ func main() {
 		),
 	)
 
-	runner, err := rediver.NewRunner(
-		os.Getenv("REDIVER_URL"),
-		os.Getenv("REDIVER_TOKEN"),
-		rediver.WithWorkerMode(),
-	)
+	agent, err := rediver.NewAgent(os.Getenv("REDIVER_TOKEN"), scanner)
 	if err != nil {
-		log.Fatalf("create runner: %v", err)
-	}
-
-	if err := runner.Add(scanner); err != nil {
-		log.Fatalf("register: %v", err)
+		log.Fatalf("create agent: %v", err)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	if err := runner.Run(ctx); err != nil {
+	if err := agent.Run(ctx); err != nil {
 		log.Fatalf("run: %v", err)
 	}
 

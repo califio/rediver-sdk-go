@@ -1,4 +1,4 @@
-// Example task mode runner demonstrating single-job execution with auto token revocation.
+// Example task mode agent demonstrating single-job execution with auto token revocation.
 package main
 
 import (
@@ -14,23 +14,18 @@ import (
 func main() {
 	godotenv.Load()
 
-	runner, err := rediver.NewRunner(
-		os.Getenv("REDIVER_URL"),
-		os.Getenv("REDIVER_TOKEN"),
+	agent, err := rediver.NewAgent(os.Getenv("REDIVER_TOKEN"),
+		rediver.NewScanner("nuclei",
+			[]rediver.TargetType{rediver.TargetTypeDomain, rediver.TargetTypeService},
+			nucleiHandler,
+		),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := runner.Add(rediver.NewScanner("nuclei",
-		[]rediver.TargetType{rediver.TargetTypeDomain, rediver.TargetTypeService},
-		nucleiHandler,
-	)); err != nil {
-		log.Fatal(err)
-	}
-
 	// RunOnce: poll once -> execute -> revoke token -> exit
-	if err := runner.RunOnce(context.Background()); err != nil {
+	if err := agent.RunOnce(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("task complete, token revoked")

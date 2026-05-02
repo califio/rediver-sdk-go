@@ -14,6 +14,7 @@ import (
 )
 
 
+
 // Agent is the per-scanner agent. Create with NewAgent; start with Run, RunOnce, RunCI, or Dispatch.
 type Agent struct {
 	scanner      Scanner
@@ -41,25 +42,6 @@ type Agent struct {
 
 	mu      sync.Mutex  // guards cancelDrain + token refresh
 	running atomic.Bool // one-shot guard (used in Phase 3)
-}
-
-// newAgentInternal is the legacy path used by Runner.createAgents. It builds
-// an Agent and immediately calls initSession (matching pre-refactor behavior
-// where Runner.Run generated tokens at start). Removed in Phase 5.
-func newAgentInternal(ctx context.Context, s Scanner, clusterToken, serverURL string, persistent, syncMetadata bool, config *runnerConfig) (*Agent, error) {
-	a := &Agent{
-		scanner:      s,
-		scannerName:  strings.ToLower(s.Name()),
-		clusterToken: clusterToken,
-		serverURL:    serverURL,
-		config:       config,
-		retrier:      newRetrier(config.retryPolicy),
-		logger:       config.logger.With("scanner", strings.ToLower(s.Name())),
-	}
-	if err := a.initSession(ctx, persistent, syncMetadata, config.directJobID); err != nil {
-		return nil, err
-	}
-	return a, nil
 }
 
 // NewAgent creates an Agent for a single scanner. Token is resolved from the

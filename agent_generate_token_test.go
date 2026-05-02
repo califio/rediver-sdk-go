@@ -29,7 +29,7 @@ func (s *testTokenService) GenerateToken(_ context.Context, req *connect.Request
 	}), nil
 }
 
-// newTestConnectServer mounts only the services used by newAgent/newRunner init:
+// newTestConnectServer mounts only the services used by Agent init:
 // TokenService (for GenerateToken). Returns the server URL and a reference to
 // testTokenService so tests can inspect captured requests.
 func newTestConnectServer(t *testing.T, svc *testTokenService) string {
@@ -52,17 +52,15 @@ func TestNewAgent_TaskDirectJobIncludesJobIdInGenerateToken(t *testing.T) {
 	svc := &testTokenService{agentID: "agent-1", token: "agent-token-1"}
 	serverURL := newTestConnectServer(t, svc)
 
-	cfg := defaultAgentConfig()
-	cfg.runMode = RunModeTask
-	cfg.directJobID = "job-123"
-
 	scanner := NewScanner("calif-audit", []TargetType{TargetTypeRepository}, nil)
-	agent, err := newAgentInternal(context.Background(), scanner, "cluster-token", serverURL, false, false, cfg)
+	a, err := NewAgent("cluster-token", scanner, WithServerURL(serverURL))
 	if err != nil {
-		t.Fatalf("newAgentInternal() error = %v", err)
+		t.Fatalf("NewAgent() error = %v", err)
 	}
-	if agent == nil {
-		t.Fatal("expected agent to be created")
+
+	// initSession with directJobID — Task mode: ephemeral=false, no sync, bound to job.
+	if err := a.initSession(context.Background(), false, false, "job-123"); err != nil {
+		t.Fatalf("initSession() error = %v", err)
 	}
 
 	req := svc.lastReq
@@ -86,17 +84,15 @@ func TestNewAgent_TaskPollDoesNotIncludeJobIdInGenerateToken(t *testing.T) {
 	svc := &testTokenService{agentID: "agent-1", token: "agent-token-1"}
 	serverURL := newTestConnectServer(t, svc)
 
-	cfg := defaultAgentConfig()
-	cfg.runMode = RunModeTask
-	// directJobID deliberately omitted
-
 	scanner := NewScanner("calif-audit", []TargetType{TargetTypeRepository}, nil)
-	agent, err := newAgentInternal(context.Background(), scanner, "cluster-token", serverURL, false, false, cfg)
+	a, err := NewAgent("cluster-token", scanner, WithServerURL(serverURL))
 	if err != nil {
-		t.Fatalf("newAgentInternal() error = %v", err)
+		t.Fatalf("NewAgent() error = %v", err)
 	}
-	if agent == nil {
-		t.Fatal("expected agent to be created")
+
+	// initSession without directJobID — normal Task mode poll: ephemeral, no job binding.
+	if err := a.initSession(context.Background(), false, false, ""); err != nil {
+		t.Fatalf("initSession() error = %v", err)
 	}
 
 	req := svc.lastReq

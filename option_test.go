@@ -36,29 +36,6 @@ func TestDefaultAgentConfig(t *testing.T) {
 	}
 }
 
-func TestWithWorkerMode(t *testing.T) {
-	cfg := defaultAgentConfig()
-	WithWorkerMode()(cfg)
-	if cfg.runMode != RunModeWorker {
-		t.Errorf("runMode: got %v, want RunModeWorker", cfg.runMode)
-	}
-}
-
-func TestWithTaskMode(t *testing.T) {
-	cfg := defaultAgentConfig()
-	WithTaskMode()(cfg)
-	if cfg.runMode != RunModeTask {
-		t.Errorf("runMode: got %v, want RunModeTask", cfg.runMode)
-	}
-}
-
-func TestWithCIMode(t *testing.T) {
-	cfg := defaultAgentConfig()
-	WithCIMode()(cfg)
-	if cfg.runMode != RunModeCI {
-		t.Errorf("runMode: got %v, want RunModeCI", cfg.runMode)
-	}
-}
 
 func TestWithDispatcherMetadataSync(t *testing.T) {
 	cfg := defaultAgentConfig()
@@ -198,37 +175,6 @@ func TestWithNoRetry(t *testing.T) {
 	}
 }
 
-func TestResolveRunMode(t *testing.T) {
-	tests := []struct {
-		env  string
-		want RunMode
-	}{
-		{"worker", RunModeWorker},
-		{"task", RunModeTask},
-		{"ci", RunModeCI},
-		{"WORKER", RunModeWorker}, // case insensitive
-		{"", RunModeTask},         // default
-		{"unknown", RunModeTask},  // unknown defaults to task
-	}
-
-	for _, tc := range tests {
-		t.Run("mode="+tc.env, func(t *testing.T) {
-			t.Setenv("REDIVER_RUN_MODE", tc.env)
-			got := resolveRunMode()
-			if got != tc.want {
-				t.Errorf("resolveRunMode(%q): got %v, want %v", tc.env, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestWithJobID(t *testing.T) {
-	cfg := &runConfig{}
-	WithJobID("job-123")(cfg)
-	if cfg.jobID != "job-123" {
-		t.Errorf("got %q, want job-123", cfg.jobID)
-	}
-}
 
 func TestWithServerURL(t *testing.T) {
 	cfg := defaultAgentConfig()
@@ -247,7 +193,6 @@ func TestDefaultServerURL(t *testing.T) {
 func TestMultipleOptions(t *testing.T) {
 	cfg := defaultAgentConfig()
 	opts := []Option{
-		WithWorkerMode(),
 		WithMaxConcurrency(4),
 		WithPollInterval(10 * time.Second),
 		WithVersion("2.0.0"),
@@ -257,9 +202,6 @@ func TestMultipleOptions(t *testing.T) {
 		opt(cfg)
 	}
 
-	if cfg.runMode != RunModeWorker {
-		t.Error("runMode not set")
-	}
 	if cfg.maxConcurrency != 4 {
 		t.Error("maxConcurrency not set")
 	}

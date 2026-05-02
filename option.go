@@ -7,8 +7,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/califio/rediver-sdk-go/internal/auth"
 )
 
 // DispatchMode controls how PollJob requests are issued.
@@ -32,26 +30,11 @@ const (
 	DefaultServerURL = "https://api.rediver.ai"
 )
 
-// RunMode determines the agent execution mode.
-type RunMode = auth.RunMode
-
-const (
-	// RunModeWorker is the default long-running poll loop mode.
-	RunModeWorker = auth.RunModeWorker
-	// RunModeTask executes a single job, revokes token, and exits.
-	RunModeTask = auth.RunModeTask
-	// RunModeCI detects CI environment, creates a job, scans local repo, and exits.
-	RunModeCI = auth.RunModeCI
-	// RunModeDispatcher polls jobs and forwards them to an external handler.
-	RunModeDispatcher = auth.RunModeDispatcher
-)
-
-// runnerConfig holds Runner/Agent shared configuration.
+// runnerConfig holds Agent configuration.
 type runnerConfig struct {
 	logger                 *slog.Logger
 	httpClient             *http.Client
 	retryPolicy            RetryPolicy
-	runMode                RunMode
 	maxConcurrency         int
 	pollInterval           time.Duration
 	dispatchMode           DispatchMode
@@ -60,8 +43,6 @@ type runnerConfig struct {
 	hostname               string
 	shutdownTimeout        time.Duration
 	repoDir                string // override repository directory for CI mode
-	jobHandler             JobHandler
-	directJobID            string // if set, skip poll and execute this job directly (RunDirect)
 	syncMetadataDispatcher bool   // allow Dispatcher mode to sync scanner metadata on startup
 	serverURL              string // override server URL; empty → resolveServerURL() picks env or default
 }
@@ -82,14 +63,13 @@ func (c *runnerConfig) dispatchParams() (int32, time.Duration) {
 func defaultAgentConfig() *runnerConfig {
 	hostname, _ := os.Hostname()
 	return &runnerConfig{
-		logger:          slog.Default(),
+		logger: slog.Default(),
 		// 90s default accommodates long-poll mode (server holds up to 60s,
 		// SDK wraps ctx with waitSeconds+5s = 65s) without HTTP client timing
 		// out before the ctx deadline. Short-poll mode is unaffected — empty
 		// PollJob returns immediately, well under 90s.
 		httpClient:      &http.Client{Timeout: 90 * time.Second},
 		retryPolicy:     DefaultRetryPolicy(),
-		runMode:         resolveRunMode(),
 		maxConcurrency:  1,
 		pollInterval:    5 * time.Second,
 		dispatchMode:    DispatchPolling,
@@ -99,47 +79,11 @@ func defaultAgentConfig() *runnerConfig {
 	}
 }
 
-// resolveRunMode checks REDIVER_RUN_MODE env var. Default: task.
-func resolveRunMode() RunMode {
-	mode := strings.ToLower(os.Getenv("REDIVER_RUN_MODE"))
-	switch mode {
-	case "worker":
-		return RunModeWorker
-	case "task":
-		return RunModeTask
-	case "ci":
-		return RunModeCI
-	default:
-		return RunModeTask
-	}
-}
-
-// Option configures a Runner or Agent.
+// Option configures an Agent.
 type Option func(*runnerConfig)
 
 // RunnerOption is an alias for Option.
 type RunnerOption = Option
-
-// WithWorkerMode sets the runner to worker mode (long-running poll loop).
-func WithWorkerMode() Option {
-	return func(c *runnerConfig) {
-		c.runMode = RunModeWorker
-	}
-}
-
-// WithTaskMode sets the runner to task mode (single job, revoke token, exit).
-func WithTaskMode() Option {
-	return func(c *runnerConfig) {
-		c.runMode = RunModeTask
-	}
-}
-
-// WithCIMode sets the runner to CI mode (detect env, create job, scan local repo, exit).
-func WithCIMode() Option {
-	return func(c *runnerConfig) {
-		c.runMode = RunModeCI
-	}
-}
 
 // WithDispatcherMetadataSync enables scanner metadata sync when running in Dispatcher mode.
 // Disabled by default because not every dispatcher owns scanner configuration in the backend.
@@ -270,16 +214,22 @@ func WithServerURL(url string) Option {
 	}
 }
 
-// RunOption configures a single Run() invocation.
-type RunOption func(*runConfig)
-
-type runConfig struct {
-	jobID string // if set, skip pull and execute this job directly
+// resolveClusterToken resolves the cluster token from the argument or REDIVER_TOKEN env.
+func resolveClusterToken(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	return strings.TrimSpace(os.Getenv("REDIVER_TOKEN"))
 }
 
-// WithJobID skips job polling and executes the specified job directly.
-func WithJobID(id string) RunOption {
-	return func(c *runConfig) {
-		c.jobID = id
+// resolveServerURL returns the server URL using priority:
+// explicit (option/arg) → REDIVER_URL env → DefaultServerURL.
+func resolveServerURL(explicit string) string {
+	if explicit != "" {
+		return explicit
 	}
+	if env := strings.TrimSpace(os.Getenv("REDIVER_URL")); env != "" {
+		return env
+	}
+	return DefaultServerURL
 }
