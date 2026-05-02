@@ -230,6 +230,20 @@ func TestWithJobID(t *testing.T) {
 	}
 }
 
+func TestWithServerURL(t *testing.T) {
+	cfg := defaultAgentConfig()
+	WithServerURL("https://custom.example.com")(cfg)
+	if cfg.serverURL != "https://custom.example.com" {
+		t.Errorf("got %q, want https://custom.example.com", cfg.serverURL)
+	}
+}
+
+func TestDefaultServerURL(t *testing.T) {
+	if DefaultServerURL != "https://api.rediver.ai" {
+		t.Errorf("got %q, want https://api.rediver.ai", DefaultServerURL)
+	}
+}
+
 func TestMultipleOptions(t *testing.T) {
 	cfg := defaultAgentConfig()
 	opts := []Option{

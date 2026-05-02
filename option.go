@@ -27,6 +27,9 @@ const (
 const (
 	defaultLongPollWait = 30 * time.Second
 	maxLongPollWait     = 60 * time.Second
+
+	// DefaultServerURL is the default Rediver API server URL.
+	DefaultServerURL = "https://api.rediver.ai"
 )
 
 // RunMode determines the agent execution mode.
@@ -60,6 +63,7 @@ type runnerConfig struct {
 	jobHandler             JobHandler
 	directJobID            string // if set, skip poll and execute this job directly (RunDirect)
 	syncMetadataDispatcher bool   // allow Dispatcher mode to sync scanner metadata on startup
+	serverURL              string // override server URL; empty → resolveServerURL() picks env or default
 }
 
 // dispatchParams returns (waitSeconds, clientSleep) used by the poll loop.
@@ -256,6 +260,14 @@ func WithRepoDir(path string) Option {
 // WithNoRetry disables retry (fail on first error).
 func WithNoRetry() Option {
 	return WithRetry(NoRetry())
+}
+
+// WithServerURL sets the Rediver API server URL. Overrides REDIVER_URL env.
+// Default: DefaultServerURL ("https://api.rediver.ai").
+func WithServerURL(url string) Option {
+	return func(c *runnerConfig) {
+		c.serverURL = url
+	}
 }
 
 // RunOption configures a single Run() invocation.
