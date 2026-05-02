@@ -7,21 +7,6 @@ import (
 	"time"
 )
 
-// slogLevelToLogLevel maps slog severity to rediver LogLevel.
-// Defined here temporarily; moved to slog_adapter.go in Task 1.6.
-func slogLevelToLogLevel(l slog.Level) LogLevel {
-	switch {
-	case l < slog.LevelInfo:
-		return LogLevelDebug
-	case l < slog.LevelWarn:
-		return LogLevelInfo
-	case l < slog.LevelError:
-		return LogLevelWarn
-	default:
-		return LogLevelError
-	}
-}
-
 // LogEntry represents a single log line from a scanner handler.
 type LogEntry struct {
 	Timestamp time.Time      `json:"timestamp"`
