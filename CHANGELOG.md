@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## v2.0.0 — 2026-05-02
+
+### Breaking changes
+
+- `Runner` type removed. Use `Agent` instead.
+- `NewRunner(url, token, opts...)` → `NewAgent(token, scanner, opts...)`. Server URL now defaults to `https://api.rediver.ai`; override via `WithServerURL` option or `REDIVER_URL` env.
+- `Runner.Add(scanners...)` removed. Pass the scanner directly to `NewAgent`.
+- Deprecated `Agent`/`NewAgent` wrapper removed. Reclaimed name now points to the new single-scanner type.
+- Run-mode options removed: `WithWorkerMode()`, `WithTaskMode()`, `WithCIMode()`, `WithJobID()`. Use the explicit lifecycle methods instead.
+- `RunMode` type and `RunModeWorker/Task/CI/Dispatcher` constants removed.
+- `RunOption` type removed (was only used by `WithJobID`).
+- `REDIVER_RUN_MODE` env no longer read by SDK. Scanner mains read their own env.
+- `examples/multi-scanner/` removed. Run multiple scanners with multiple Agent instances + caller-side errgroup.
+
+### Migration
+
+```go
+// Before
+r, _ := rediver.NewRunner(url, token, rediver.WithWorkerMode(), rediver.WithMaxConcurrency(5))
+r.Add(scanner)
+r.Run(ctx)
+
+// After
+a, _ := rediver.NewAgent(token, scanner, rediver.WithMaxConcurrency(5))
+a.Run(ctx)
+```
+
+For multi-scanner orchestration (e.g., job dispatcher):
+
+```go
+agents := make([]*rediver.Agent, 0, len(configs))
+for _, cfg := range configs {
+    a, err := rediver.NewAgent(token, newScanner(cfg), opts...)
+    if err != nil { return err }
+    agents = append(agents, a)
+}
+g, gCtx := errgroup.WithContext(ctx)
+for _, a := range agents {
+    a := a
+    g.Go(func() error { return a.Dispatch(gCtx, handler) })
+}
+return g.Wait()
+```
+
+### Added
+
+- `NewAgent(token, scanner, opts...)` — single-scanner constructor.
+- `Agent.Run(ctx)`, `Agent.RunOnce(ctx, jobID...)`, `Agent.RunCI(ctx)`, `Agent.Dispatch(ctx, handler)`, `Agent.Stop()` — explicit lifecycle methods.
+- `WithServerURL(url)` option.
+- `DefaultServerURL` constant (`"https://api.rediver.ai"`).
+- `ErrAlreadyRunning` sentinel for one-shot guard.
+
+### Internal
+
+- `agent.go` (805 lines) split into 11 focused files.
+- `job.go` (741 lines) split into 4 focused files.
+- All package files now under 200 lines.
+
 ## [2.0.0] - 2026-05-01
 
 ### Changed
