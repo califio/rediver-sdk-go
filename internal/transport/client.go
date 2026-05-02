@@ -279,6 +279,15 @@ func (c *Client) AppendJobLogs(ctx context.Context, req *agentv1.AppendJobLogsRe
 	return nil
 }
 
+// AppendJobEvents sends a batch of JobEvents to the backend.
+func (c *Client) AppendJobEvents(ctx context.Context, req *agentv1.AppendJobEventsRequest) error {
+	_, err := c.Job.AppendJobEvents(ctx, connect.NewRequest(req))
+	if err != nil {
+		return fmt.Errorf("append job events: %w", err)
+	}
+	return nil
+}
+
 // BaseURL returns the base URL of the API server.
 func (c *Client) BaseURL() string { return c.baseURL }
 
