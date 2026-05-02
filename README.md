@@ -24,15 +24,6 @@ import (
 )
 
 func main() {
-    agent, err := rediver.NewAgent(
-        os.Getenv("REDIVER_URL"),
-        os.Getenv("REDIVER_TOKEN"),
-        rediver.WithWorkerMode(),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-
     scanner := rediver.NewScanner("my_scanner",
         []rediver.TargetType{rediver.TargetTypeDomain},
         scanHandler,
@@ -45,7 +36,12 @@ func main() {
         ),
     )
 
-    if err := agent.Register(scanner); err != nil {
+    agent, err := rediver.NewAgent(
+        os.Getenv("REDIVER_TOKEN"),
+        scanner,
+        rediver.WithMaxConcurrency(1),
+    )
+    if err != nil {
         log.Fatal(err)
     }
 
@@ -105,65 +101,58 @@ func scanHandler(ctx context.Context, job rediver.Job, emit func(rediver.Result)
 
 ## Run Modes
 
-The SDK supports three run modes, each suited for different deployment strategies:
+The SDK supports three lifecycle methods, each suited for different deployment strategies:
 
-| Mode | Use case | Lifecycle |
-|------|----------|-----------|
-| **Worker** | Long-running agent (VM, bare-metal) | Register → poll loop → heartbeats → graceful shutdown |
-| **Task** | Orchestrated containers (K8s Job) | Connect → pull 1 job → execute → revoke token → exit |
-| **CI** | CI/CD pipelines (GitLab CI, GitHub Actions) | Detect env → create job → scan local repo → report → exit |
+| Method | Use case | Lifecycle |
+|--------|----------|-----------|
+| `Run(ctx)` | Long-running agent (VM, bare-metal) | Token gen → poll loop → heartbeats → graceful shutdown |
+| `RunOnce(ctx, jobID...)` | Orchestrated containers (K8s Job) | Connect → pull 1 job → execute → revoke token → exit |
+| `RunCI(ctx)` | CI/CD pipelines (GitLab CI, GitHub Actions) | Detect env → create job → scan local repo → report → exit |
 
-### Worker Mode
+### Worker Mode (`Run`)
 
 Long-running agent that continuously polls for jobs. Ideal for persistent deployments.
 
 ```go
-agent, _ := rediver.NewAgent(url, token,
-    rediver.WithWorkerMode(),
-    rediver.WithMaxConcurrency(5),            // parallel jobs (default: 1)
+// Long-running poll loop — blocks until context cancelled.
+// Pass scanner directly; one Agent per scanner.
+agent, _ := rediver.NewAgent(token, scanner,
+    rediver.WithMaxConcurrency(5),             // parallel jobs (default: 1)
     rediver.WithPollInterval(30*time.Second),  // poll frequency (default: 5s)
     rediver.WithShutdownTimeout(2*time.Minute), // graceful shutdown window
     rediver.WithAgentIDPath("/data/agent-id"), // persist agent ID across restarts
 )
 
-agent.Register(scanner1, scanner2) // register multiple scanners
-agent.RunAsWorker(ctx)             // blocks until context cancelled
+agent.Run(ctx) // blocks until context cancelled
 ```
 
-### Task Mode (Default)
+### Task Mode (`RunOnce`)
 
 Single-job execution for container orchestration. Pulls one job, executes, revokes token, and exits.
 
 ```go
-agent, _ := rediver.NewAgent(url, token,
-    rediver.WithTaskMode(), // default, can be omitted
-)
-
-agent.Register(scanner)
-agent.Run(ctx) // execute one job then exit
+agent, _ := rediver.NewAgent(token, scanner)
+agent.RunOnce(ctx) // pull one job, execute, exit
 ```
 
 **Direct job execution** — skip polling and run a specific job by ID:
 
 ```go
-agent.Run(ctx, rediver.WithJobID("job-uuid"))
+agent.RunOnce(ctx, "job-uuid")
 ```
 
-### CI Mode
+### CI Mode (`RunCI`)
 
 Auto-detects CI environment (GitLab CI, GitHub Actions), creates a job on the server, scans the locally checked-out repository, and exits.
 
 ```go
-agent, _ := rediver.NewAgent(url, token,
-    rediver.WithCIMode(),
-)
-
-agent.Register(rediver.NewScanner("semgrep",
+scanner := rediver.NewScanner("semgrep",
     []rediver.TargetType{rediver.TargetTypeRepository},
     semgrepHandler,
-))
+)
 
-agent.RunAsCI(ctx)
+agent, _ := rediver.NewAgent(token, scanner)
+agent.RunCI(ctx)
 ```
 
 **GitLab CI integration:**
@@ -187,10 +176,6 @@ sast_scan:
     REDIVER_URL: https://rediver.example.com
     REDIVER_TOKEN: ${{ secrets.CLUSTER_TOKEN }}
 ```
-
-**Run mode via environment variable:**
-
-Set `REDIVER_RUN_MODE` to `worker`, `task`, or `ci` instead of using option functions.
 
 ## Scanner
 
@@ -440,11 +425,9 @@ rediver.IntArrayParam("ports").Label("Ports").Build()
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `WithWorkerMode()` | — | Long-running daemon with poll loop |
-| `WithTaskMode()` | yes | Single job, revoke token, exit |
-| `WithCIMode()` | — | CI environment auto-detect |
-| `WithMaxConcurrency(n)` | 1 | Max concurrent jobs (worker mode) |
-| `WithPollInterval(d)` | 5s | Job poll interval (worker mode, min 1s) |
+| `WithServerURL(url)` | `https://api.rediver.ai` | Override API server URL (also: `REDIVER_URL` env) |
+| `WithMaxConcurrency(n)` | 1 | Max concurrent jobs (`Run` poll loop) |
+| `WithPollInterval(d)` | 5s | Job poll interval (`Run`, min 1s) |
 | `WithShutdownTimeout(d)` | 0 (wait forever) | Graceful shutdown window |
 | `WithAgentIDPath(path)` | `~/.rediver/agent-id` | Persist agent ID across restarts |
 | `WithAgentID(id)` | — | Force specific agent ID |
@@ -506,7 +489,6 @@ Complete working examples in the [examples/](examples/) directory:
 | [subdomain](examples/subdomain/) | Worker | Subdomain enumeration with retest support |
 | [serviceprobe](examples/serviceprobe/) | Worker | Service/port scanning with TLS and HTTP info |
 | [vulnscan](examples/vulnscan/) | Worker | Web vulnerability scanner with finding reporting |
-| [multi-scanner](examples/multi-scanner/) | Worker | Multiple scanners in a single agent |
 | [task](examples/task/) | Task | Single-job execution for container orchestration |
 | [direct-job](examples/direct-job/) | Task | Execute a specific job by ID |
 | [ci-scanner](examples/ci-scanner/) | CI | SAST scanning in GitLab CI / GitHub Actions |
@@ -515,10 +497,8 @@ Complete working examples in the [examples/](examples/) directory:
 
 | Variable | Description |
 |----------|-------------|
-| `REDIVER_URL` | Rediver server URL |
+| `REDIVER_URL` | Rediver server URL (default: `https://api.rediver.ai`) |
 | `REDIVER_TOKEN` | Agent cluster token |
-| `REDIVER_RUN_MODE` | Run mode: `worker`, `task` (default), or `ci` |
-| `REDIVER_JOB_ID` | Specific job ID for direct execution |
 
 ## API Client
 
