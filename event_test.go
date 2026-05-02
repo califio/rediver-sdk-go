@@ -47,6 +47,34 @@ func TestNewToolUseEnd(t *testing.T) {
 	}
 }
 
+func TestNewText_Constructors(t *testing.T) {
+	cases := []struct {
+		name     string
+		ev       Event
+		wantType EventType
+		wantText string
+	}{
+		{"text_delta", NewTextDelta("hi"), EventTextDelta, "hi"},
+		{"text_end", NewTextEnd("hello world"), EventTextEnd, "hello world"},
+		{"thinking_delta", NewThinkingDelta("..."), EventThinkingDelta, "..."},
+		{"thinking_end", NewThinkingEnd("done"), EventThinkingEnd, "done"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.ev.Type != c.wantType {
+				t.Errorf("type: got %v, want %v", c.ev.Type, c.wantType)
+			}
+			p, ok := c.ev.Payload.(TextPayload)
+			if !ok {
+				t.Fatalf("payload type: got %T", c.ev.Payload)
+			}
+			if p.Text != c.wantText {
+				t.Errorf("text: got %q, want %q", p.Text, c.wantText)
+			}
+		})
+	}
+}
+
 func TestEventType_IsEphemeral(t *testing.T) {
 	cases := []struct {
 		t    EventType
