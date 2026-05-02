@@ -270,15 +270,6 @@ func (c *Client) CreateCiJob(ctx context.Context, req *agentv1.CreateCiJobReques
 	return resp.Msg, nil
 }
 
-// AppendJobLogs calls JobService.AppendJobLogs.
-func (c *Client) AppendJobLogs(ctx context.Context, req *agentv1.AppendJobLogsRequest) error {
-	_, err := c.Job.AppendJobLogs(ctx, connect.NewRequest(req))
-	if err != nil {
-		return fmt.Errorf("append job logs: %w", err)
-	}
-	return nil
-}
-
 // AppendJobEvents sends a batch of JobEvents to the backend.
 func (c *Client) AppendJobEvents(ctx context.Context, req *agentv1.AppendJobEventsRequest) error {
 	_, err := c.Job.AppendJobEvents(ctx, connect.NewRequest(req))

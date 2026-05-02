@@ -1,8 +1,6 @@
 package rediver
 
 import (
-	"context"
-	"log/slog"
 	"testing"
 
 	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
@@ -723,20 +721,3 @@ func TestCleanupRepository_NoClonedDir(t *testing.T) {
 	}
 }
 
-// --- discardHandler ---
-
-func TestDiscardHandler_NoPanic(t *testing.T) {
-	h := discardHandler{}
-	if h.Enabled(context.Background(), slog.LevelInfo) {
-		t.Error("should always return false")
-	}
-	if err := h.Handle(context.Background(), slog.Record{}); err != nil {
-		t.Error("should return nil")
-	}
-	if h.WithAttrs(nil) != h {
-		t.Error("should return self")
-	}
-	if h.WithGroup("") != h {
-		t.Error("should return self")
-	}
-}

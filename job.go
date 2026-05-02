@@ -162,11 +162,13 @@ func (j *job) Version() int {
 	return 1
 }
 
+// Logger returns a *slog.Logger backed by SlogHandler. Provided as a
+// transitional shim for callers that have not yet migrated to job.Emit.
+// Will be removed in v2.1.0 (Phase 5 final task).
+//
+// Deprecated: use Emit + NewLog or SlogHandler directly.
 func (j *job) Logger() *slog.Logger {
-	if j.logger == nil {
-		return slog.New(discardHandler{})
-	}
-	return j.logger
+	return slog.New(j.SlogHandler())
 }
 
 func (j *job) Emit(ev Event) {
@@ -183,10 +185,3 @@ func (j *job) SlogHandler() slog.Handler {
 	return newJobSlogAdapter(j.transport.Submit, slog.LevelDebug)
 }
 
-// discardHandler is a slog.Handler that silently discards all records.
-type discardHandler struct{}
-
-func (discardHandler) Enabled(context.Context, slog.Level) bool  { return false }
-func (discardHandler) Handle(context.Context, slog.Record) error { return nil }
-func (d discardHandler) WithAttrs([]slog.Attr) slog.Handler      { return d }
-func (d discardHandler) WithGroup(string) slog.Handler           { return d }
