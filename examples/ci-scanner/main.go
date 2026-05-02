@@ -25,6 +25,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,7 +63,7 @@ func semgrepHandler(ctx context.Context, job rediver.Job, emit func(rediver.Resu
 		return fmt.Errorf("no repository available")
 	}
 
-	logger := job.Logger()
+	logger := slog.New(job.SlogHandler())
 	logger.Info("scanning repository", "path", repoDir)
 
 	// Simulated SAST scan — replace with real semgrep execution

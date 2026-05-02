@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"time"
@@ -61,7 +62,7 @@ func main() {
 }
 
 func discoverServices(ctx context.Context, job rediver.Job, emit func(rediver.Result)) error {
-	logger := job.Logger()
+	logger := slog.New(job.SlogHandler())
 	ports := job.Param("ports").StringOr("80,443,8080,8443")
 	timeout := job.Param("timeout").IntOr(5)
 	grabBanners := job.Param("grab_banners").BoolOr(true)
@@ -112,7 +113,7 @@ func discoverServices(ctx context.Context, job rediver.Job, emit func(rediver.Re
 }
 
 func retestServices(ctx context.Context, job rediver.Job, emit func(rediver.Result)) error {
-	logger := job.Logger()
+	logger := slog.New(job.SlogHandler())
 	services := job.Services()
 	logger.Info("starting recheck", "services_count", len(services))
 

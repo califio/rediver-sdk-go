@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"time"
@@ -58,7 +59,7 @@ func main() {
 }
 
 func discoverSubdomains(ctx context.Context, job rediver.Job, emit func(rediver.Result)) error {
-	logger := job.Logger()
+	logger := slog.New(job.SlogHandler())
 	wordlist := job.Param("wordlist").StringOr("/usr/share/wordlists/subdomains.txt")
 	threads := job.Param("threads").IntOr(10)
 
@@ -88,7 +89,7 @@ func discoverSubdomains(ctx context.Context, job rediver.Job, emit func(rediver.
 }
 
 func retestSubdomains(ctx context.Context, job rediver.Job, emit func(rediver.Result)) error {
-	logger := job.Logger()
+	logger := slog.New(job.SlogHandler())
 	domains := job.Domains()
 	logger.Info("starting recheck", "domains_count", len(domains))
 

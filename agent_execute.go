@@ -28,7 +28,6 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 		scannerName = strings.ToLower(detail.Scanner)
 	}
 	jobLogger := a.config.logger.With("job_id", jobID, "scanner", scannerName)
-	j.(*job).logger = jobLogger
 
 	eventCtx, cancelEvents := context.WithCancel(ctx)
 	sender := &agentEventSender{client: a.client}

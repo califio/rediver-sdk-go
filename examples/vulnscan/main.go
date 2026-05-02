@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"time"
@@ -61,7 +62,7 @@ func main() {
 }
 
 func scanVulnerabilities(ctx context.Context, job rediver.Job, emit func(rediver.Result)) error {
-	logger := job.Logger()
+	logger := slog.New(job.SlogHandler())
 	severityThreshold := job.Param("severity_threshold").StringOr("low")
 	activeScan := job.Param("active_scan").BoolOr(false)
 	rateLimit := job.Param("rate_limit").IntOr(10)

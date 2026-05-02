@@ -73,9 +73,11 @@ func (j *job) cleanupRepository() {
 		return
 	}
 	if err := os.RemoveAll(j.clonedRepoDir); err != nil {
-		j.Logger().Warn("cleanup repo failed", "dir", j.clonedRepoDir, "error", err)
+		j.Emit(NewLog(LogLevelWarn,
+			fmt.Sprintf("cleanup repo failed dir=%s error=%v", j.clonedRepoDir, err)))
 	} else {
-		j.Logger().Info("cleaned up cloned repo", "dir", j.clonedRepoDir)
+		j.Emit(NewLog(LogLevelInfo,
+			fmt.Sprintf("cleaned up cloned repo dir=%s", j.clonedRepoDir)))
 	}
 	j.clonedRepoDir = ""
 	j.repoDir = ""

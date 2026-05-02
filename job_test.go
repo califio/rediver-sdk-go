@@ -1,6 +1,7 @@
 package rediver
 
 import (
+	"log/slog"
 	"testing"
 
 	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
@@ -420,15 +421,16 @@ func TestJob_Version_Zero(t *testing.T) {
 	}
 }
 
-// --- job.Logger ---
+// --- job.SlogHandler ---
 
-func TestJob_Logger_Nil(t *testing.T) {
+func TestJob_SlogHandler_Nil(t *testing.T) {
 	j := newJob(nil)
-	logger := j.Logger()
-	if logger == nil {
-		t.Fatal("Logger() should never return nil")
+	h := j.SlogHandler()
+	if h == nil {
+		t.Fatal("SlogHandler() should never return nil")
 	}
-	logger.Info("test message")
+	// must not panic when emitting through a job with no transport
+	slog.New(h).Info("test message")
 }
 
 // --- job.Integration ---

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## v2.1.0 — 2026-05-02
+
+### Breaking changes
+
+- `Job.Logger() *slog.Logger` removed from the `Job` interface and `*job` struct. Callers should switch to `job.Emit(rediver.NewLog(level, msg))` for direct event emission, or build a logger explicitly via `slog.New(job.SlogHandler())` when interop with `*slog.Logger` is required (e.g., third-party helper packages).
+- Internal job-scoped `logger` field removed from `*job`; assignments in `agent_execute.go` and `agent_run_ci.go` deleted.
+
+### Migration
+
+```go
+// Before
+log := job.Logger()
+log.Info("scanning", "target", target)
+
+// After (option A — direct event)
+job.Emit(rediver.NewLog(rediver.LogLevelInfo,
+    fmt.Sprintf("scanning target=%s", target)))
+
+// After (option B — keep slog for helpers that take *slog.Logger)
+log := slog.New(job.SlogHandler())
+log.Info("scanning", "target", target)
+```
+
+### Rationale
+
+Single event API on `Job`: `Emit` for typed events, `SlogHandler` for slog interop. Removes the dual `Logger()` shim that was marked Deprecated in v2.0.0.
+
 ## v2.0.0 — 2026-05-02
 
 ### Breaking changes

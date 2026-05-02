@@ -77,9 +77,6 @@ type Job interface {
 	// Version returns the schema version of the job detail.
 	Version() int
 
-	// Logger returns a job-scoped logger for structured logging during execution.
-	Logger() *slog.Logger
-
 	// Emit ships a typed event through the SDK's event transport. The event's
 	// Sequence and Timestamp are assigned automatically.
 	Emit(event Event)
@@ -99,7 +96,6 @@ type job struct {
 	detail             *agentv1.GetJobDetailResponse
 	params             map[string]interface{}
 	ciContext          *CIContext           // non-nil = CI mode
-	logger             *slog.Logger         // job-scoped logger
 	transport          *eventTransport      // populated in agent_execute.go before Scan()
 	executionToken     string               // snapshot for scanner subprocesses
 	repoDir            string               // prepared repo path
@@ -160,15 +156,6 @@ func (j *job) Version() int {
 		return int(v)
 	}
 	return 1
-}
-
-// Logger returns a *slog.Logger backed by SlogHandler. Provided as a
-// transitional shim for callers that have not yet migrated to job.Emit.
-// Will be removed in v2.1.0 (Phase 5 final task).
-//
-// Deprecated: use Emit + NewLog or SlogHandler directly.
-func (j *job) Logger() *slog.Logger {
-	return slog.New(j.SlogHandler())
 }
 
 func (j *job) Emit(ev Event) {

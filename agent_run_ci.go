@@ -83,7 +83,6 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 	j := newCIJob(jobID, ci, a.scannerName, params)
 
 	ciJobLogger := a.config.logger.With("job_id", jobID, "scanner", a.scannerName)
-	j.(*job).logger = ciJobLogger
 
 	ciEventCtx, cancelCIEvents := context.WithCancel(ctx)
 	ciSender := &agentEventSender{client: a.client}
