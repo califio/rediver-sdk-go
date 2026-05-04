@@ -3,6 +3,7 @@ package rediver
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	"google.golang.org/protobuf/types/known/structpb"
@@ -40,6 +41,9 @@ func (a *Agent) runCI(ctx context.Context) error {
 }
 
 func (a *Agent) detectGitContext() *CIContext {
+	if a.config.repoDir != "" && !isCIEnvironment() {
+		return detectLocalGit(a.config.repoDir)
+	}
 	ci := DetectGitContext()
 	if a.config.repoDir != "" {
 		if ci == nil {
@@ -49,6 +53,10 @@ func (a *Agent) detectGitContext() *CIContext {
 		}
 	}
 	return ci
+}
+
+func isCIEnvironment() bool {
+	return os.Getenv("GITLAB_CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true"
 }
 
 func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
