@@ -5,18 +5,42 @@ All notable changes to the Rediver SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
 ## [Unreleased]
 
-## v2.1.0 — 2026-05-02
+## [1.3.0] - 2026-05-04
+
+> **Note on versioning:** This release contains substantial API changes that strict SemVer would classify as a major bump. Released as `1.3.0` because all in-tree consumers (rediver scanners, dispatcher) are migrated to the new API in lockstep — no out-of-tree consumers exist. External adopters should treat `v1.3.0` as a hard breaking-change boundary.
 
 ### Breaking changes
 
-- `Job.Logger() *slog.Logger` removed from the `Job` interface and `*job` struct. Callers should switch to `job.Emit(rediver.NewLog(level, msg))` for direct event emission, or build a logger explicitly via `slog.New(job.SlogHandler())` when interop with `*slog.Logger` is required (e.g., third-party helper packages).
-- Internal job-scoped `logger` field removed from `*job`; assignments in `agent_execute.go` and `agent_run_ci.go` deleted.
+#### Agent API
+
+- `Runner` type removed. Use `Agent` instead.
+- `NewRunner(url, token, opts...)` -> `NewAgent(token, scanner, opts...)`. Server URL now defaults to `https://api.rediver.ai`; override via `WithServerURL` option or `REDIVER_URL` env.
+- `Runner.Add(scanners...)` removed. Pass the scanner directly to `NewAgent`.
+- Deprecated `Agent`/`NewAgent` wrapper removed. Reclaimed name now points to the new single-scanner type.
+- Run-mode options removed: `WithWorkerMode()`, `WithTaskMode()`, `WithCIMode()`, `WithJobID()`. Use the explicit lifecycle methods instead.
+- `RunMode` type and `RunModeWorker/Task/CI/Dispatcher` constants removed.
+- `RunOption` type removed (was only used by `WithJobID`).
+- `REDIVER_RUN_MODE` env no longer read by SDK. Scanner mains read their own env.
+- `examples/multi-scanner/` removed. Run multiple scanners with multiple Agent instances + caller-side errgroup.
+
+#### Job event API
+
+- `Job.Logger() *slog.Logger` removed from the `Job` interface and `*job` struct. Use `job.Emit(rediver.NewLog(level, msg))` for direct event emission, or `slog.New(job.SlogHandler())` when interop with `*slog.Logger` is required.
+- Internal job-scoped `logger` field removed from `*job`.
+
+#### Transport (internal)
+
+- Replaced oapi-codegen REST client with Connect-protocol service clients distributed via the Buf Schema Registry (`buf.build/rediver/api`).
+- `internal/transport.Client` now wraps Connect service clients (`TokenService`, `AgentService`, `JobService`, `ArtifactService`, `FindingService`, `AssetService`).
+- Enum types (`Severity`, `TargetType`, `GitProvider`) now independent string types with internal proto conversion; no longer type aliases of generated REST client types.
 
 ### Migration
 
 ```go
+// Logger() removal
 // Before
 log := job.Logger()
 log.Info("scanning", "target", target)
@@ -30,86 +54,45 @@ log := slog.New(job.SlogHandler())
 log.Info("scanning", "target", target)
 ```
 
-### Rationale
-
-Single event API on `Job`: `Emit` for typed events, `SlogHandler` for slog interop. Removes the dual `Logger()` shim that was marked Deprecated in v2.0.0.
-
-## v2.0.0 — 2026-05-02
-
-### Breaking changes
-
-- `Runner` type removed. Use `Agent` instead.
-- `NewRunner(url, token, opts...)` → `NewAgent(token, scanner, opts...)`. Server URL now defaults to `https://api.rediver.ai`; override via `WithServerURL` option or `REDIVER_URL` env.
-- `Runner.Add(scanners...)` removed. Pass the scanner directly to `NewAgent`.
-- Deprecated `Agent`/`NewAgent` wrapper removed. Reclaimed name now points to the new single-scanner type.
-- Run-mode options removed: `WithWorkerMode()`, `WithTaskMode()`, `WithCIMode()`, `WithJobID()`. Use the explicit lifecycle methods instead.
-- `RunMode` type and `RunModeWorker/Task/CI/Dispatcher` constants removed.
-- `RunOption` type removed (was only used by `WithJobID`).
-- `REDIVER_RUN_MODE` env no longer read by SDK. Scanner mains read their own env.
-- `examples/multi-scanner/` removed. Run multiple scanners with multiple Agent instances + caller-side errgroup.
-
-### Migration
-
 ```go
+// Runner -> Agent
 // Before
-r, _ := rediver.NewRunner(url, token, rediver.WithWorkerMode(), rediver.WithMaxConcurrency(5))
-r.Add(scanner)
-r.Run(ctx)
+runner := rediver.NewRunner(url, token, opts...)
+runner.Add(scanner)
+runner.Run(ctx)
 
 // After
-a, _ := rediver.NewAgent(token, scanner, rediver.WithMaxConcurrency(5))
-a.Run(ctx)
-```
-
-For multi-scanner orchestration (e.g., job dispatcher):
-
-```go
-agents := make([]*rediver.Agent, 0, len(configs))
-for _, cfg := range configs {
-    a, err := rediver.NewAgent(token, newScanner(cfg), opts...)
-    if err != nil { return err }
-    agents = append(agents, a)
-}
-g, gCtx := errgroup.WithContext(ctx)
-for _, a := range agents {
-    a := a
-    g.Go(func() error { return a.Dispatch(gCtx, handler) })
-}
-return g.Wait()
+agent, _ := rediver.NewAgent(token, scanner, rediver.WithServerURL(url))
+agent.Run(ctx)
 ```
 
 ### Added
 
 - `NewAgent(token, scanner, opts...)` — single-scanner constructor.
 - `Agent.Run(ctx)`, `Agent.RunOnce(ctx, jobID...)`, `Agent.RunCI(ctx)`, `Agent.Dispatch(ctx, handler)`, `Agent.Stop()` — explicit lifecycle methods.
-- `WithServerURL(url)` option.
-- `DefaultServerURL` constant (`"https://api.rediver.ai"`).
+- `WithServerURL(url)` option + `DefaultServerURL` constant (`"https://api.rediver.ai"`).
 - `ErrAlreadyRunning` sentinel for one-shot guard.
+- `Job.Emit(event)` + `Job.SlogHandler()` — unified event API.
+- `JobEvent` core types + `IsEphemeral` classifier; constructors for `NewLog`, ToolUse, Text/Thinking deltas.
+- `eventTransport` with channel + flush worker + sequence assignment.
+- Long-polling dispatch mode with `DispatchMode`.
+- `internal/connectclient` — lightweight Connect service client wrapper.
+- `internal/transport.authRetryTransport` — single-flight 401 refresh.
+- Direct dependencies: `connectrpc.com/connect`, `buf.build/gen/go/rediver/api/connectrpc/go`, `buf.build/gen/go/rediver/api/protocolbuffers/go`, `google.golang.org/protobuf`.
+- `Agent.detectGitContext` honors configured `repoDir` for local git scans outside CI environments (auto-skipped when `GITLAB_CI` / `GITHUB_ACTIONS` set).
+
+### Removed
+
+- `internal/api/client.gen.go` (5 889-line oapi-codegen-generated) and `oapi-codegen.yaml`.
+- `github.com/deepmap/oapi-codegen` and transitive dependencies.
+- Legacy `log_transport` / `job_logger` files.
 
 ### Internal
 
-- `agent.go` (805 lines) split into 11 focused files.
+- `agent.go` (805 lines) split into 11 focused per-mode files.
 - `job.go` (741 lines) split into 4 focused files.
 - All package files now under 200 lines.
-
-## [2.0.0] - 2026-05-01
-
-### Changed
-- **Breaking (internal):** Replaced oapi-codegen REST client with Connect-protocol service clients distributed via the Buf Schema Registry (`buf.build/rediver/api`). The public SDK API surface (`NewAgent`, `NewScanner`, `NewRunner`, all option functions, `Job`, `Scanner`, `Result`, etc.) is **unchanged**.
-- `internal/transport.Client` now wraps Connect service clients (`TokenService`, `AgentService`, `JobService`, `ArtifactService`, `FindingService`, `AssetService`) instead of the oapi-codegen HTTP client.
-- All enum types (`Severity`, `TargetType`, `GitProvider`) are now independent string types with internal conversion to proto enums; no longer type aliases of the generated REST client types.
-
-### Removed
-- `internal/api/client.gen.go` (5 889-line oapi-codegen-generated file) and `oapi-codegen.yaml`.
-- `github.com/deepmap/oapi-codegen` and all related transitive dependencies removed from `go.mod`.
-
-### Added
-- `internal/connectclient` — lightweight wrapper constructing all Connect service clients from a shared base URL and auth transport.
-- `internal/transport.authRetryTransport` — single-flight 401 refresh via `TokenManager` without requiring REST client.
-- Direct dependencies: `connectrpc.com/connect`, `buf.build/gen/go/rediver/api/connectrpc/go`, `buf.build/gen/go/rediver/api/protocolbuffers/go`, `google.golang.org/protobuf`.
-
-### Tests
-- `agent_generate_token_test.go` and `dispatcher_metadata_smoke_test.go` rewritten to run an in-process Connect httptest server instead of a plain HTTP server with REST JSON handlers.
+- `agent_generate_token_test.go` and `dispatcher_metadata_smoke_test.go` rewritten on in-process Connect httptest server.
 
 ## [1.2.10] - 2026-04-03
 
