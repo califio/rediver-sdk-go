@@ -89,6 +89,7 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 	a.logger.Info("CI job created", "job_id", jobID)
 
 	j := newCIJob(jobID, ci, a.scannerName, params)
+	j.(*job).executionToken = a.tokenManager.AgentToken()
 
 	ciJobLogger := a.config.logger.With("job_id", jobID, "scanner", a.scannerName)
 

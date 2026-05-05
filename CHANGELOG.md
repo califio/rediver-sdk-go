@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-05-05
+
+### Fixed
+
+- CI repository scans now expose the generated agent token through `Job.ExecutionToken()` before invoking scanner code, matching task/direct job behavior and allowing scanners to authenticate job-scoped backend resources such as the LLM gateway.
+
+### Tests
+
+- Added CI-mode coverage asserting `RunCI` passes the execution token to scanner handlers.
+
 ## [1.3.0] - 2026-05-04
 
 > **Note on versioning:** This release contains substantial API changes that strict SemVer would classify as a major bump. Released as `1.3.0` because all in-tree consumers (rediver scanners, dispatcher) are migrated to the new API in lockstep — no out-of-tree consumers exist. External adopters should treat `v1.3.0` as a hard breaking-change boundary.
