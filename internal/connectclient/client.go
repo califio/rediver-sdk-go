@@ -8,11 +8,18 @@ import (
 	"net/http"
 
 	agentv1connect "buf.build/gen/go/rediver/api/connectrpc/go/agent/v1/agentv1connect"
+	artifactv1connect "github.com/califio/rediver-sdk-go/internal/gen/grpc/artifact/v1/artifactv1connect"
+	authv1connect "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1/authv1connect"
+	"github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1/scannerv1connect"
 )
 
 // Clients bundles all Connect service clients tied to the same base URL and
 // bearer transport. Construct via New.
 type Clients struct {
+	AuthToken  authv1connect.TokenServiceClient
+	ArtifactV1 artifactv1connect.ArtifactServiceClient
+	Scanner    scannerv1connect.ScannerServiceClient
+
 	Token    agentv1connect.TokenServiceClient
 	Agent    agentv1connect.AgentServiceClient
 	Job      agentv1connect.JobServiceClient
@@ -36,6 +43,10 @@ func New(baseURL string, tokenFn func() string, httpClient *http.Client) *Client
 	wrapped := withAuthTransport(base, tokenFn)
 
 	return &Clients{
+		AuthToken:  authv1connect.NewTokenServiceClient(wrapped, baseURL),
+		ArtifactV1: artifactv1connect.NewArtifactServiceClient(wrapped, baseURL),
+		Scanner:    scannerv1connect.NewScannerServiceClient(wrapped, baseURL),
+
 		Token:    agentv1connect.NewTokenServiceClient(wrapped, baseURL),
 		Agent:    agentv1connect.NewAgentServiceClient(wrapped, baseURL),
 		Job:      agentv1connect.NewJobServiceClient(wrapped, baseURL),
@@ -65,7 +76,7 @@ type authTransport struct {
 }
 
 func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if token := t.tokenFn(); token != "" {
+	if token := t.tokenFn(); token != "" && req.Header.Get("Authorization") == "" {
 		req = req.Clone(req.Context())
 		req.Header.Set("X-Token", token)
 	}

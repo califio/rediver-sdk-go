@@ -2,8 +2,12 @@ package rediver
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -108,9 +112,12 @@ func (j *job) prepareArchive(ctx context.Context, repo *Repository) error {
 		return fmt.Errorf("artifact download not available in this run mode")
 	}
 
-	presignedURL, err := j.artifactDownloadFn(ctx, repo.ArtifactID)
+	download, err := j.artifactDownloadFn(ctx, repo.ArtifactID)
 	if err != nil {
-		return fmt.Errorf("get artifact download URL: %w", err)
+		return fmt.Errorf("get artifact download: %w", err)
+	}
+	if download == nil || download.PresignedURL == "" {
+		return fmt.Errorf("artifact download returned empty URL")
 	}
 
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "artifact_")
@@ -118,7 +125,7 @@ func (j *job) prepareArchive(ctx context.Context, repo *Repository) error {
 		return fmt.Errorf("create artifact temp dir: %w", err)
 	}
 
-	if err := j.downloadAndExtract(ctx, presignedURL, tmpDir); err != nil {
+	if err := j.downloadAndExtract(ctx, download, tmpDir); err != nil {
 		os.RemoveAll(tmpDir)
 		return fmt.Errorf("extract artifact: %w", err)
 	}
@@ -128,8 +135,10 @@ func (j *job) prepareArchive(ctx context.Context, repo *Repository) error {
 	return nil
 }
 
-// downloadAndExtract streams a tar.gz from rawURL and extracts it into destDir.
-func (j *job) downloadAndExtract(ctx context.Context, rawURL string, destDir string) error {
+// downloadAndExtract downloads a tar.gz artifact, decrypts it when metadata is
+// present, and extracts it into destDir.
+func (j *job) downloadAndExtract(ctx context.Context, download *ArtifactDownload, destDir string) error {
+	rawURL := download.PresignedURL
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return fmt.Errorf("build download request: %w", err)
@@ -145,7 +154,16 @@ func (j *job) downloadAndExtract(ctx context.Context, rawURL string, destDir str
 		return fmt.Errorf("download artifact: unexpected status %d", resp.StatusCode)
 	}
 
-	gz, err := gzip.NewReader(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read artifact: %w", err)
+	}
+	body, err = decryptArtifactIfNeeded(body, download)
+	if err != nil {
+		return err
+	}
+
+	gz, err := gzip.NewReader(bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("open gzip stream: %w", err)
 	}
@@ -188,6 +206,51 @@ func (j *job) downloadAndExtract(ctx context.Context, rawURL string, destDir str
 		}
 	}
 	return nil
+}
+
+func decryptArtifactIfNeeded(body []byte, download *ArtifactDownload) ([]byte, error) {
+	algorithm := strings.TrimSpace(download.EncryptionAlgorithm)
+	if algorithm == "" {
+		return body, nil
+	}
+	if algorithm != "AES_256_GCM" && algorithm != "ALGORITHM_AES_256_GCM" {
+		return nil, fmt.Errorf("unsupported artifact encryption algorithm %q", algorithm)
+	}
+	key, err := decodeArtifactKey(download.EncryptionKey)
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("create artifact cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("create artifact gcm: %w", err)
+	}
+	if len(body) < gcm.NonceSize() {
+		return nil, fmt.Errorf("encrypted artifact is shorter than nonce")
+	}
+	nonce := body[:gcm.NonceSize()]
+	ciphertext := body[gcm.NonceSize():]
+	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt artifact: %w", err)
+	}
+	return plain, nil
+}
+
+func decodeArtifactKey(raw string) ([]byte, error) {
+	if raw == "" {
+		return nil, fmt.Errorf("encrypted artifact missing encryption key")
+	}
+	if key, err := base64.RawURLEncoding.DecodeString(raw); err == nil {
+		return key, nil
+	}
+	if key, err := base64.StdEncoding.DecodeString(raw); err == nil {
+		return key, nil
+	}
+	return nil, fmt.Errorf("decode artifact encryption key")
 }
 
 // buildRefSpecs constructs git refspecs and checkout ref based on event type and provider.

@@ -16,7 +16,17 @@ import (
 
 	"github.com/califio/rediver-sdk-go/internal/auth"
 	"github.com/califio/rediver-sdk-go/internal/connectclient"
+	artifactv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/artifact/v1"
+	authv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1"
+	commonv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/common/v1"
+	scannerv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
 )
+
+type ArtifactDownloadInfo struct {
+	PresignedURL        string
+	EncryptionAlgorithm string
+	EncryptionKey       string
+}
 
 // Client wraps the Connect service clients with TokenManager integration.
 // 401/Unauthenticated is retried once after refreshing the agent token.
@@ -24,6 +34,8 @@ type Client struct {
 	*connectclient.Clients
 	tokenManager *auth.TokenManager
 	baseURL      string
+	jobTokens    map[string]string
+	jobTokensMu  sync.Mutex
 }
 
 // NewClient creates a transport client with automatic token injection and 401 refresh.
@@ -51,10 +63,12 @@ func NewClient(baseURL string, tm *auth.TokenManager, httpClient *http.Client) (
 		Clients:      clients,
 		tokenManager: tm,
 		baseURL:      baseURL,
+		jobTokens:    make(map[string]string),
 	}
 
-	// Wire callbacks into TokenManager (breaks circular dependency)
-	tm.SetRevokeFunc(c.doRevoke)
+	// Wire callbacks into TokenManager (breaks circular dependency). The new
+	// auth flow treats the configured token as the agent token, so revoke is a
+	// compatibility no-op unless a caller installs its own revoke function.
 	tm.SetGenerateTokenFunc(func(ctx context.Context, req auth.GenerateTokenRequest) (*auth.GenerateTokenResponse, error) {
 		return c.DoGenerateToken(ctx, req)
 	})
@@ -62,7 +76,8 @@ func NewClient(baseURL string, tm *auth.TokenManager, httpClient *http.Client) (
 	return c, nil
 }
 
-// authRetryTransport injects X-Token header and retries once on 401 after refreshing.
+// authRetryTransport injects X-Token header for agent-plane calls and retries
+// once on 401 after refreshing when a refresh function is configured.
 type authRetryTransport struct {
 	base         http.RoundTripper
 	tokenManager *auth.TokenManager
@@ -83,7 +98,7 @@ func (t *authRetryTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 	// Inject current token
 	token := t.tokenManager.AgentToken()
-	if token != "" {
+	if token != "" && req.Header.Get("Authorization") == "" {
 		req.Header.Set("X-Token", token)
 	}
 
@@ -111,7 +126,9 @@ func (t *authRetryTransport) RoundTrip(req *http.Request) (*http.Response, error
 	if bodyBytes != nil {
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
-	req.Header.Set("X-Token", t.tokenManager.AgentToken())
+	if req.Header.Get("Authorization") == "" {
+		req.Header.Set("X-Token", t.tokenManager.AgentToken())
+	}
 
 	return t.base.RoundTrip(req)
 }
@@ -131,7 +148,7 @@ func (c *Client) DoPollJob(ctx context.Context, waitSeconds int32) (string, stri
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(waitSeconds+5)*time.Second)
 		defer cancel()
 	}
-	resp, err := c.Job.PollJob(ctx, connect.NewRequest(&agentv1.PollJobRequest{
+	resp, err := c.Scanner.PollJob(ctx, connect.NewRequest(&scannerv1.PollJobRequest{
 		WaitSeconds: waitSeconds,
 	}))
 	if err != nil {
@@ -141,6 +158,61 @@ func (c *Client) DoPollJob(ctx context.Context, waitSeconds int32) (string, stri
 	jobID := msg.GetJobId()
 	scanner := msg.GetScanner()
 	return jobID, scanner, nil
+}
+
+// RegisterAgent calls ScannerService.RegisterAgent and returns the runner ID.
+func (c *Client) RegisterAgent(ctx context.Context, req *scannerv1.RegisterAgentRequest) (string, error) {
+	resp, err := c.Scanner.RegisterAgent(ctx, connect.NewRequest(req))
+	if err != nil {
+		return "", fmt.Errorf("register agent: %w", err)
+	}
+	return resp.Msg.GetRunnerId(), nil
+}
+
+// CreateJobToken calls auth.v1.TokenService.CreateJobToken and caches the job JWT.
+func (c *Client) CreateJobToken(ctx context.Context, jobID string) (string, error) {
+	if jobID == "" {
+		return "", fmt.Errorf("create job token: job ID is required")
+	}
+	c.jobTokensMu.Lock()
+	if token := c.jobTokens[jobID]; token != "" {
+		c.jobTokensMu.Unlock()
+		return token, nil
+	}
+	c.jobTokensMu.Unlock()
+
+	req := &authv1.CreateJobTokenRequest{
+		JobId: jobID,
+	}
+	if runnerID := c.tokenManager.AgentID(); runnerID != "" {
+		req.RunnerId = &runnerID
+	}
+	resp, err := c.AuthToken.CreateJobToken(ctx, connect.NewRequest(req))
+	if err != nil {
+		return "", fmt.Errorf("create job token: %w", err)
+	}
+	token := resp.Msg.GetToken()
+	if token == "" {
+		return "", fmt.Errorf("create job token: empty token")
+	}
+
+	c.jobTokensMu.Lock()
+	c.jobTokens[jobID] = token
+	c.jobTokensMu.Unlock()
+	return token, nil
+}
+
+func (c *Client) jobBearer(ctx context.Context, jobID string) (string, error) {
+	token, err := c.CreateJobToken(ctx, jobID)
+	if err != nil {
+		return "", err
+	}
+	return "Bearer " + token, nil
+}
+
+func withBearer[T any](req *connect.Request[T], bearer string) *connect.Request[T] {
+	req.Header().Set("Authorization", bearer)
+	return req
 }
 
 // DoGenerateToken calls GenerateToken RPC for per-scanner token exchange.
@@ -170,7 +242,9 @@ func (c *Client) DoGenerateToken(ctx context.Context, req auth.GenerateTokenRequ
 
 // AgentHeartbeat calls AgentService.Heartbeat RPC.
 func (c *Client) AgentHeartbeat(ctx context.Context) error {
-	_, err := c.Agent.Heartbeat(ctx, connect.NewRequest(&agentv1.HeartbeatRequest{}))
+	_, err := c.Scanner.Heartbeat(ctx, connect.NewRequest(&scannerv1.HeartbeatRequest{
+		RunnerId: c.tokenManager.AgentID(),
+	}))
 	if err != nil {
 		return fmt.Errorf("agent heartbeat: %w", err)
 	}
@@ -186,66 +260,111 @@ func (c *Client) UpdateScanner(ctx context.Context, req *agentv1.UpdateScannerRe
 	return nil
 }
 
-// GetArtifactPresignedURL calls ArtifactService.GetArtifactDownload and returns
-// the presigned download URL for the given artifactID.
-func (c *Client) GetArtifactPresignedURL(ctx context.Context, artifactID string) (string, error) {
-	resp, err := c.Artifact.GetArtifactDownload(ctx, connect.NewRequest(&agentv1.GetArtifactDownloadRequest{
+// GetArtifactDownload calls artifact.v1.ArtifactService.GetArtifactDownload and
+// returns the presigned URL plus optional artifact encryption metadata.
+func (c *Client) GetArtifactDownload(ctx context.Context, artifactID string) (*ArtifactDownloadInfo, error) {
+	resp, err := c.ArtifactV1.GetArtifactDownload(ctx, connect.NewRequest(&artifactv1.GetArtifactDownloadRequest{
 		ArtifactId: artifactID,
 	}))
 	if err != nil {
-		return "", fmt.Errorf("artifact download: %w", err)
+		return nil, fmt.Errorf("artifact download: %w", err)
 	}
-	return resp.Msg.GetPresignedUrl(), nil
+	out := &ArtifactDownloadInfo{
+		PresignedURL:  resp.Msg.GetPresignedUrl(),
+		EncryptionKey: resp.Msg.GetEncryptionKey(),
+	}
+	if resp.Msg.EncryptionAlgorithm != nil {
+		switch resp.Msg.GetEncryptionAlgorithm() {
+		case artifactv1.Algorithm_ALGORITHM_AES_256_GCM:
+			out.EncryptionAlgorithm = "AES_256_GCM"
+		default:
+			out.EncryptionAlgorithm = resp.Msg.GetEncryptionAlgorithm().String()
+		}
+	}
+	return out, nil
+}
+
+// GetArtifactPresignedURL is retained for callers that only need the URL.
+func (c *Client) GetArtifactPresignedURL(ctx context.Context, artifactID string) (string, error) {
+	info, err := c.GetArtifactDownload(ctx, artifactID)
+	if err != nil {
+		return "", err
+	}
+	return info.PresignedURL, nil
 }
 
 // GetJobDetail calls JobService.GetJobDetail and returns the detail response.
 func (c *Client) GetJobDetail(ctx context.Context, jobID string) (*agentv1.GetJobDetailResponse, error) {
-	resp, err := c.Job.GetJobDetail(ctx, connect.NewRequest(&agentv1.GetJobDetailRequest{
+	bearer, err := c.jobBearer(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.Scanner.GetJobDetail(ctx, withBearer(connect.NewRequest(&scannerv1.GetJobDetailRequest{
 		JobId: jobID,
-	}))
+	}), bearer))
 	if err != nil {
 		return nil, fmt.Errorf("get job detail: %w", err)
 	}
-	return resp.Msg, nil
+	return scannerDetailToAgentDetail(resp.Msg), nil
 }
 
 // JobStart calls JobService.JobStart.
 func (c *Client) JobStart(ctx context.Context, jobID string) error {
-	_, err := c.Job.JobStart(ctx, connect.NewRequest(&agentv1.JobStartRequest{
+	bearer, err := c.jobBearer(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	_, err = c.Scanner.JobStart(ctx, withBearer(connect.NewRequest(&scannerv1.JobStartRequest{
 		JobId: jobID,
-	}))
+	}), bearer))
 	return err
 }
 
 // JobCompleted calls JobService.JobCompleted.
 func (c *Client) JobCompleted(ctx context.Context, jobID string) error {
-	_, err := c.Job.JobCompleted(ctx, connect.NewRequest(&agentv1.JobCompletedRequest{
+	bearer, err := c.jobBearer(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	_, err = c.Scanner.JobCompleted(ctx, withBearer(connect.NewRequest(&scannerv1.JobCompletedRequest{
 		JobId: jobID,
-	}))
+	}), bearer))
 	return err
 }
 
 // JobFailed calls JobService.JobFailed.
 func (c *Client) JobFailed(ctx context.Context, jobID, description string) error {
-	req := &agentv1.JobFailedRequest{JobId: jobID}
+	req := &scannerv1.JobFailedRequest{JobId: jobID}
 	if description != "" {
 		req.Description = &description
 	}
-	_, err := c.Job.JobFailed(ctx, connect.NewRequest(req))
+	bearer, err := c.jobBearer(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	_, err = c.Scanner.JobFailed(ctx, withBearer(connect.NewRequest(req), bearer))
 	return err
 }
 
 // JobHeartbeat calls JobService.JobHeartbeat.
 func (c *Client) JobHeartbeat(ctx context.Context, jobID string) error {
-	_, err := c.Job.JobHeartbeat(ctx, connect.NewRequest(&agentv1.JobHeartbeatRequest{
+	bearer, err := c.jobBearer(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	_, err = c.Scanner.JobHeartbeat(ctx, withBearer(connect.NewRequest(&scannerv1.JobHeartbeatRequest{
 		JobId: jobID,
-	}))
+	}), bearer))
 	return err
 }
 
 // PushAssets calls AssetService.PushAssets.
 func (c *Client) PushAssets(ctx context.Context, req *agentv1.PushAssetsRequest) error {
-	_, err := c.Asset.PushAssets(ctx, connect.NewRequest(req))
+	bearer, err := c.jobBearer(ctx, req.GetJobId())
+	if err != nil {
+		return err
+	}
+	_, err = c.Asset.PushAssets(ctx, withBearer(connect.NewRequest(req), bearer))
 	if err != nil {
 		return fmt.Errorf("push assets: %w", err)
 	}
@@ -254,7 +373,11 @@ func (c *Client) PushAssets(ctx context.Context, req *agentv1.PushAssetsRequest)
 
 // PushFindings calls FindingService.PushFindings.
 func (c *Client) PushFindings(ctx context.Context, req *agentv1.PushFindingsRequest) error {
-	_, err := c.Finding.PushFindings(ctx, connect.NewRequest(req))
+	bearer, err := c.jobBearer(ctx, req.GetJobId())
+	if err != nil {
+		return err
+	}
+	_, err = c.Finding.PushFindings(ctx, withBearer(connect.NewRequest(req), bearer))
 	if err != nil {
 		return fmt.Errorf("push findings: %w", err)
 	}
@@ -272,7 +395,11 @@ func (c *Client) CreateCiJob(ctx context.Context, req *agentv1.CreateCiJobReques
 
 // AppendJobEvents sends a batch of JobEvents to the backend.
 func (c *Client) AppendJobEvents(ctx context.Context, req *agentv1.AppendJobEventsRequest) error {
-	_, err := c.Job.AppendJobEvents(ctx, connect.NewRequest(req))
+	bearer, err := c.jobBearer(ctx, req.GetJobId())
+	if err != nil {
+		return err
+	}
+	_, err = c.Job.AppendJobEvents(ctx, withBearer(connect.NewRequest(req), bearer))
 	if err != nil {
 		return fmt.Errorf("append job events: %w", err)
 	}
@@ -303,3 +430,83 @@ func strOptional(s string) *string {
 
 // strPtr returns a pointer to s. Used by tests.
 func strPtr(s string) *string { return &s }
+
+func scannerDetailToAgentDetail(in *scannerv1.GetJobDetailResponse) *agentv1.GetJobDetailResponse {
+	if in == nil {
+		return nil
+	}
+	out := &agentv1.GetJobDetailResponse{
+		Id:             in.GetId(),
+		Scanner:        in.GetScanner(),
+		Version:        in.GetVersion(),
+		TimeoutMinutes: in.GetTimeoutMinutes(),
+		Retest:         in.GetRetest(),
+		Params:         in.GetParams(),
+	}
+	if in.GetTarget() != nil {
+		out.Target = scannerTargetToAgentTarget(in.GetTarget())
+	}
+	if in.GetIntegration() != nil {
+		out.Integration = &agentv1.JobIntegration{
+			CloudflareTokens: in.GetIntegration().GetCloudflareTokens(),
+		}
+	}
+	return out
+}
+
+func scannerTargetToAgentTarget(in *scannerv1.JobTarget) *agentv1.JobTarget {
+	out := &agentv1.JobTarget{}
+	for _, d := range in.GetDomains() {
+		out.Domains = append(out.Domains, &agentv1.DomainAsset{
+			Id:    d.Id,
+			Value: d.GetValue(),
+			Cname: d.Cname,
+			Ips:   d.GetIps(),
+		})
+	}
+	for _, ip := range in.GetIps() {
+		out.Ips = append(out.Ips, &agentv1.ValueAsset{
+			Id:    ip.Id,
+			Value: ip.GetValue(),
+		})
+	}
+	for _, subnet := range in.GetSubnets() {
+		out.Subnets = append(out.Subnets, &agentv1.ValueAsset{
+			Id:    subnet.Id,
+			Value: subnet.GetValue(),
+		})
+	}
+	for _, svc := range in.GetServices() {
+		out.Services = append(out.Services, &agentv1.ServiceAsset{
+			Id:    svc.Id,
+			Value: svc.GetValue(),
+			Host:  svc.Host,
+			Port:  svc.Port,
+			Url:   svc.Url,
+		})
+	}
+	if in.GetRepository() != nil {
+		out.Repository = repositoryTargetToAgentContext(in.GetRepository())
+	}
+	return out
+}
+
+func repositoryTargetToAgentContext(in *commonv1.RepositoryTarget) *agentv1.RepositoryJobContext {
+	ref := in.GetBranch()
+	if ref == "" {
+		ref = in.GetTag()
+	}
+	out := &agentv1.RepositoryJobContext{
+		Url:           in.GetUrl(),
+		Provider:      agentv1.GitProvider(in.GetProvider()),
+		ArtifactId:    in.ArtifactId,
+		Event:         agentv1.CiEvent(in.GetEvent()),
+		Ref:           ref,
+		Branch:        in.Branch,
+		CommitSha:     in.CommitSha,
+		BaseBranch:    in.BaseBranch,
+		BaseCommitSha: in.BaseCommitSha,
+		PrNumber:      in.PullRequestNumber,
+	}
+	return out
+}

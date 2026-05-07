@@ -14,17 +14,43 @@ import (
 	"buf.build/gen/go/rediver/api/connectrpc/go/agent/v1/agentv1connect"
 	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 	"connectrpc.com/connect"
+
+	authv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1"
+	"github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1/authv1connect"
+	scannerv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
+	"github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1/scannerv1connect"
 )
 
-type ciTokenService struct {
-	agentv1connect.UnimplementedTokenServiceHandler
+type ciAuthTokenService struct {
+	authv1connect.UnimplementedTokenServiceHandler
 }
 
-func (s *ciTokenService) GenerateToken(_ context.Context, _ *connect.Request[agentv1.GenerateTokenRequest]) (*connect.Response[agentv1.GenerateTokenResponse], error) {
-	return connect.NewResponse(&agentv1.GenerateTokenResponse{
-		AgentId: "agent-1",
-		Token:   "agent-token-1",
-	}), nil
+func (s *ciAuthTokenService) CreateJobToken(_ context.Context, _ *connect.Request[authv1.CreateJobTokenRequest]) (*connect.Response[authv1.CreateJobTokenResponse], error) {
+	return connect.NewResponse(&authv1.CreateJobTokenResponse{Token: "job-jwt-1"}), nil
+}
+
+type ciScannerService struct {
+	scannerv1connect.UnimplementedScannerServiceHandler
+}
+
+func (s *ciScannerService) RegisterAgent(_ context.Context, _ *connect.Request[scannerv1.RegisterAgentRequest]) (*connect.Response[scannerv1.RegisterAgentResponse], error) {
+	return connect.NewResponse(&scannerv1.RegisterAgentResponse{RunnerId: "runner-1"}), nil
+}
+
+func (s *ciScannerService) JobStart(_ context.Context, _ *connect.Request[scannerv1.JobStartRequest]) (*connect.Response[scannerv1.JobStartResponse], error) {
+	return connect.NewResponse(&scannerv1.JobStartResponse{Success: true}), nil
+}
+
+func (s *ciScannerService) JobCompleted(_ context.Context, _ *connect.Request[scannerv1.JobCompletedRequest]) (*connect.Response[scannerv1.JobCompletedResponse], error) {
+	return connect.NewResponse(&scannerv1.JobCompletedResponse{Success: true}), nil
+}
+
+func (s *ciScannerService) JobFailed(_ context.Context, _ *connect.Request[scannerv1.JobFailedRequest]) (*connect.Response[scannerv1.JobFailedResponse], error) {
+	return connect.NewResponse(&scannerv1.JobFailedResponse{Success: true}), nil
+}
+
+func (s *ciScannerService) JobHeartbeat(_ context.Context, _ *connect.Request[scannerv1.JobHeartbeatRequest]) (*connect.Response[scannerv1.JobHeartbeatResponse], error) {
+	return connect.NewResponse(&scannerv1.JobHeartbeatResponse{Success: true}), nil
 }
 
 type ciJobService struct {
@@ -38,28 +64,12 @@ func (s *ciJobService) CreateCiJob(_ context.Context, _ *connect.Request[agentv1
 	}), nil
 }
 
-func (s *ciJobService) JobStart(_ context.Context, _ *connect.Request[agentv1.JobStartRequest]) (*connect.Response[agentv1.JobStartResponse], error) {
-	return connect.NewResponse(&agentv1.JobStartResponse{}), nil
-}
-
-func (s *ciJobService) JobCompleted(_ context.Context, _ *connect.Request[agentv1.JobCompletedRequest]) (*connect.Response[agentv1.JobCompletedResponse], error) {
-	return connect.NewResponse(&agentv1.JobCompletedResponse{}), nil
-}
-
-func (s *ciJobService) JobFailed(_ context.Context, _ *connect.Request[agentv1.JobFailedRequest]) (*connect.Response[agentv1.JobFailedResponse], error) {
-	return connect.NewResponse(&agentv1.JobFailedResponse{}), nil
-}
-
-func (s *ciJobService) JobHeartbeat(_ context.Context, _ *connect.Request[agentv1.JobHeartbeatRequest]) (*connect.Response[agentv1.JobHeartbeatResponse], error) {
-	return connect.NewResponse(&agentv1.JobHeartbeatResponse{}), nil
-}
-
 func newCITestServer(t *testing.T) string {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.Handle(agentv1connect.NewTokenServiceHandler(&ciTokenService{}))
+	mux.Handle(authv1connect.NewTokenServiceHandler(&ciAuthTokenService{}))
+	mux.Handle(scannerv1connect.NewScannerServiceHandler(&ciScannerService{}))
 	mux.Handle(agentv1connect.NewJobServiceHandler(&ciJobService{}))
-	mux.Handle(agentv1connect.NewAgentServiceHandler(&agentv1connect.UnimplementedAgentServiceHandler{}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -85,7 +95,7 @@ func TestRunCIProvidesExecutionTokenToScanner(t *testing.T) {
 		return nil
 	})
 
-	agent, err := NewAgent("cluster-token", scanner, WithServerURL(serverURL), WithRepoDir(repoDir))
+	agent, err := NewAgent("agent-token", scanner, WithServerURL(serverURL), WithRepoDir(repoDir))
 	if err != nil {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
@@ -93,8 +103,8 @@ func TestRunCIProvidesExecutionTokenToScanner(t *testing.T) {
 	if err := agent.RunCI(context.Background()); err != nil {
 		t.Fatalf("RunCI() error = %v", err)
 	}
-	if gotToken != "agent-token-1" {
-		t.Fatalf("ExecutionToken() = %q, want agent-token-1", gotToken)
+	if gotToken != "job-jwt-1" {
+		t.Fatalf("ExecutionToken() = %q, want job-jwt-1", gotToken)
 	}
 }
 

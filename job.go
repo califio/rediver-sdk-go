@@ -87,8 +87,17 @@ type Job interface {
 	SlogHandler() slog.Handler
 }
 
-// artifactDownloadFunc fetches a presigned download URL for the given artifactID.
-type artifactDownloadFunc func(ctx context.Context, artifactID string) (string, error)
+// ArtifactDownload describes a downloadable source artifact and optional
+// client-side decryption metadata.
+type ArtifactDownload struct {
+	PresignedURL        string
+	EncryptionAlgorithm string
+	EncryptionKey       string
+}
+
+// artifactDownloadFunc fetches a presigned download URL and optional
+// decryption metadata for the given artifactID.
+type artifactDownloadFunc func(ctx context.Context, artifactID string) (*ArtifactDownload, error)
 
 // job is the internal implementation of Job.
 // detail is the proto GetJobDetailResponse; ciContext is non-nil in CI mode.
@@ -171,4 +180,3 @@ func (j *job) SlogHandler() slog.Handler {
 	}
 	return newJobSlogAdapter(j.transport.Submit, slog.LevelDebug)
 }
-

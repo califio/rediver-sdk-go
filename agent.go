@@ -13,17 +13,15 @@ import (
 	"github.com/califio/rediver-sdk-go/internal/worker"
 )
 
-
-
 // Agent is the per-scanner agent. Create with NewAgent; start with Run, RunOnce, RunCI, or Dispatch.
 type Agent struct {
 	scanner      Scanner
-	scannerName  string        // scanner name in DB (normalized)
-	clusterToken string        // set in NewAgent, used by lifecycle methods to gen token
-	serverURL    string        // set in NewAgent
-	agentID      string        // set after token gen
+	scannerName  string       // scanner name in DB (normalized)
+	clusterToken string       // set in NewAgent, used by lifecycle methods to gen token
+	serverURL    string       // set in NewAgent
+	agentID      string       // set after token gen
 	config       *agentConfig // shared config (read-only after creation)
-	token        atomic.Value  // stores string — current agent token
+	token        atomic.Value // stores string — current agent token
 
 	tokenManager *auth.TokenManager // per-agent token lifecycle
 	client       *transport.Client  // per-agent Connect client
@@ -63,7 +61,7 @@ func NewAgent(token string, scanner Scanner, opts ...Option) (*Agent, error) {
 
 	tok := resolveClusterToken(token)
 	if tok == "" {
-		return nil, fmt.Errorf("%w: cluster token is required (set REDIVER_TOKEN or pass as argument)", ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: agent token is required (set REDIVER_TOKEN or pass as argument)", ErrInvalidConfig)
 	}
 
 	url := resolveServerURL(cfg.serverURL)

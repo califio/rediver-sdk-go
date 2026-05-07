@@ -5,12 +5,13 @@ import (
 	"fmt"
 
 	"github.com/califio/rediver-sdk-go/internal/auth"
+	scannerv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
 	"github.com/califio/rediver-sdk-go/internal/transport"
 	"github.com/califio/rediver-sdk-go/internal/worker"
 	"github.com/califio/rediver-sdk-go/utils"
 )
 
-// initSession generates a token for this Agent in the given mode and wires up
+// initSession registers this Agent with the scanner runtime and wires up the
 // transport client + worker pool. Called by each lifecycle method at start.
 //
 // persistent: true for Worker/Dispatcher (saved to Agents table, supports heartbeat),
@@ -38,6 +39,7 @@ func (a *Agent) initSession(ctx context.Context, persistent, syncMetadata bool, 
 	}
 
 	tm := auth.NewTokenManager(a.clusterToken)
+	tm.SetToken(a.clusterToken)
 	tm.SetGenReq(genReq)
 
 	client, err := transport.NewClient(a.serverURL, tm, a.config.httpClient)
@@ -45,20 +47,27 @@ func (a *Agent) initSession(ctx context.Context, persistent, syncMetadata bool, 
 		return fmt.Errorf("create transport: %w", err)
 	}
 
-	var resp *auth.GenerateTokenResponse
-	if err := a.retrier.Do(ctx, func() error {
-		var genErr error
-		resp, genErr = client.DoGenerateToken(ctx, genReq)
-		return genErr
-	}); err != nil {
-		return fmt.Errorf("generate-token: %w", err)
+	registerReq := &scannerv1.RegisterAgentRequest{
+		RunnerId:  nil,
+		Hostname:  strOptionalVal(hostname),
+		IpAddress: strOptionalVal(utils.GetIPAddress()),
+		Version:   strOptionalVal(a.config.version),
+		Scanners:  []string{a.scannerName},
 	}
 
-	agentID := derefStr(resp.AgentId)
+	var runnerID string
+	if err := a.retrier.Do(ctx, func() error {
+		var registerErr error
+		runnerID, registerErr = client.RegisterAgent(ctx, registerReq)
+		return registerErr
+	}); err != nil {
+		return fmt.Errorf("register agent: %w", err)
+	}
+
+	agentID := runnerID
 	genReq.AgentId = &agentID
 	tm.SetGenReq(genReq)
-	tok := derefStr(resp.Token)
-	tm.SetToken(tok)
+	tok := a.clusterToken
 	tm.SetAgentID(agentID)
 
 	a.agentID = agentID

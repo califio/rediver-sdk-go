@@ -8,29 +8,37 @@ import (
 	"testing"
 	"time"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 	"buf.build/gen/go/rediver/api/connectrpc/go/agent/v1/agentv1connect"
+	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 	"connectrpc.com/connect"
+
+	scannerv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
+	"github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1/scannerv1connect"
 )
 
 // --- test service implementations ---
 
-// dispatchTokenService captures the last GenerateToken request.
-type dispatchTokenService struct {
-	agentv1connect.UnimplementedTokenServiceHandler
+// dispatchScannerService captures RegisterAgent calls and returns no jobs.
+type dispatchScannerService struct {
+	scannerv1connect.UnimplementedScannerServiceHandler
 
 	mu      sync.Mutex
-	lastReq *agentv1.GenerateTokenRequest
+	lastReq *scannerv1.RegisterAgentRequest
 }
 
-func (s *dispatchTokenService) GenerateToken(_ context.Context, req *connect.Request[agentv1.GenerateTokenRequest]) (*connect.Response[agentv1.GenerateTokenResponse], error) {
+func (s *dispatchScannerService) RegisterAgent(_ context.Context, req *connect.Request[scannerv1.RegisterAgentRequest]) (*connect.Response[scannerv1.RegisterAgentResponse], error) {
 	s.mu.Lock()
 	s.lastReq = req.Msg
 	s.mu.Unlock()
-	return connect.NewResponse(&agentv1.GenerateTokenResponse{
-		AgentId: "agent-1",
-		Token:   "agent-token-1",
-	}), nil
+	return connect.NewResponse(&scannerv1.RegisterAgentResponse{RunnerId: "runner-1"}), nil
+}
+
+func (s *dispatchScannerService) Heartbeat(_ context.Context, _ *connect.Request[scannerv1.HeartbeatRequest]) (*connect.Response[scannerv1.HeartbeatResponse], error) {
+	return connect.NewResponse(&scannerv1.HeartbeatResponse{}), nil
+}
+
+func (s *dispatchScannerService) PollJob(_ context.Context, _ *connect.Request[scannerv1.PollJobRequest]) (*connect.Response[scannerv1.PollJobResponse], error) {
+	return connect.NewResponse(&scannerv1.PollJobResponse{}), nil
 }
 
 // dispatchAgentService captures UpdateScanner calls.
@@ -48,7 +56,7 @@ func (s *dispatchAgentService) Heartbeat(_ context.Context, _ *connect.Request[a
 
 func (s *dispatchAgentService) UpdateScanner(ctx context.Context, req *connect.Request[agentv1.UpdateScannerRequest]) (*connect.Response[agentv1.UpdateScannerResponse], error) {
 	// Verify X-Token header was injected by authRetryTransport.
-	if got := req.Header().Get("X-Token"); got != "agent-token-1" {
+	if got := req.Header().Get("X-Token"); got != "agent-token" {
 		// We can't call t.Errorf from here (no testing.T); store for assertion in test.
 	}
 	s.mu.Lock()
@@ -61,22 +69,12 @@ func (s *dispatchAgentService) UpdateScanner(ctx context.Context, req *connect.R
 	return connect.NewResponse(&agentv1.UpdateScannerResponse{}), nil
 }
 
-// dispatchJobService returns no-job (empty response) for PollJob.
-type dispatchJobService struct {
-	agentv1connect.UnimplementedJobServiceHandler
-}
-
-func (s *dispatchJobService) PollJob(_ context.Context, _ *connect.Request[agentv1.PollJobRequest]) (*connect.Response[agentv1.PollJobResponse], error) {
-	return connect.NewResponse(&agentv1.PollJobResponse{}), nil
-}
-
 // newDispatchSmokeServer creates an httptest server with all required Connect services.
-func newDispatchSmokeServer(t *testing.T, tokenSvc *dispatchTokenService, agentSvc *dispatchAgentService, jobSvc *dispatchJobService) string {
+func newDispatchSmokeServer(t *testing.T, scannerSvc *dispatchScannerService, agentSvc *dispatchAgentService) string {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.Handle(agentv1connect.NewTokenServiceHandler(tokenSvc))
+	mux.Handle(scannerv1connect.NewScannerServiceHandler(scannerSvc))
 	mux.Handle(agentv1connect.NewAgentServiceHandler(agentSvc))
-	mux.Handle(agentv1connect.NewJobServiceHandler(jobSvc))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -85,11 +83,10 @@ func newDispatchSmokeServer(t *testing.T, tokenSvc *dispatchTokenService, agentS
 func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 	t.Parallel()
 
-	tokenSvc := &dispatchTokenService{}
+	scannerSvc := &dispatchScannerService{}
 	agentSvc := &dispatchAgentService{updateSeen: make(chan struct{}, 1)}
-	jobSvc := &dispatchJobService{}
 
-	serverURL := newDispatchSmokeServer(t, tokenSvc, agentSvc, jobSvc)
+	serverURL := newDispatchSmokeServer(t, scannerSvc, agentSvc)
 
 	schema := map[string]interface{}{
 		"type": "object",
@@ -105,7 +102,7 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 		"additionalProperties": false,
 	}
 
-	agent, err := NewAgent("cluster-token",
+	agent, err := NewAgent("agent-token",
 		NewScanner(
 			"calif-audit",
 			[]TargetType{TargetTypeRepository, TargetTypeService},
@@ -146,19 +143,16 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 		t.Fatal("timed out waiting for dispatcher shutdown")
 	}
 
-	// --- assertions on GenerateToken ---
-	tokenSvc.mu.Lock()
-	gotTokenReq := tokenSvc.lastReq
-	tokenSvc.mu.Unlock()
+	// --- assertions on RegisterAgent ---
+	scannerSvc.mu.Lock()
+	gotRegisterReq := scannerSvc.lastReq
+	scannerSvc.mu.Unlock()
 
-	if gotTokenReq == nil {
-		t.Fatal("GenerateToken was never called")
+	if gotRegisterReq == nil {
+		t.Fatal("RegisterAgent was never called")
 	}
-	if gotTokenReq.GetScanner() != "calif-audit" {
-		t.Fatalf("token scanner = %q, want calif-audit", gotTokenReq.GetScanner())
-	}
-	if !gotTokenReq.GetPersistent() {
-		t.Fatal("expected dispatcher token request to be persistent")
+	if len(gotRegisterReq.GetScanners()) != 1 || gotRegisterReq.GetScanners()[0] != "calif-audit" {
+		t.Fatalf("register scanners = %v, want [calif-audit]", gotRegisterReq.GetScanners())
 	}
 
 	// --- assertions on UpdateScanner ---

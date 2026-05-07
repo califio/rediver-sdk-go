@@ -20,8 +20,23 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 	}
 
 	j := newJob(detail)
-	j.(*job).artifactDownloadFn = a.client.GetArtifactPresignedURL
-	j.(*job).executionToken = a.tokenManager.AgentToken()
+	j.(*job).artifactDownloadFn = func(ctx context.Context, artifactID string) (*ArtifactDownload, error) {
+		info, err := a.client.GetArtifactDownload(ctx, artifactID)
+		if err != nil {
+			return nil, err
+		}
+		return &ArtifactDownload{
+			PresignedURL:        info.PresignedURL,
+			EncryptionAlgorithm: info.EncryptionAlgorithm,
+			EncryptionKey:       info.EncryptionKey,
+		}, nil
+	}
+	jobToken, err := a.client.CreateJobToken(ctx, jobID)
+	if err != nil {
+		a.reportJobFailed(ctx, jobID, fmt.Sprintf("create job token: %v", err))
+		return err
+	}
+	j.(*job).executionToken = jobToken
 
 	scannerName := a.scannerName
 	if detail.Scanner != "" {
