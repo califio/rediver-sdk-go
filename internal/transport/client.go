@@ -160,16 +160,16 @@ func (c *Client) DoPollJob(ctx context.Context, waitSeconds int32) (string, stri
 	return jobID, scanner, nil
 }
 
-// RegisterAgent calls ScannerService.RegisterAgent and returns the runner ID.
-func (c *Client) RegisterAgent(ctx context.Context, req *scannerv1.RegisterAgentRequest) (string, error) {
-	resp, err := c.Scanner.RegisterAgent(ctx, connect.NewRequest(req))
+// RegisterAgent calls auth.v1.AuthService.RegisterAgent and returns the runner ID.
+func (c *Client) RegisterAgent(ctx context.Context, req *authv1.RegisterAgentRequest) (string, error) {
+	resp, err := c.Auth.RegisterAgent(ctx, connect.NewRequest(req))
 	if err != nil {
 		return "", fmt.Errorf("register agent: %w", err)
 	}
 	return resp.Msg.GetRunnerId(), nil
 }
 
-// CreateJobToken calls auth.v1.TokenService.CreateJobToken and caches the job JWT.
+// CreateJobToken calls auth.v1.AuthService.CreateJobToken and caches the job JWT.
 func (c *Client) CreateJobToken(ctx context.Context, jobID string) (string, error) {
 	if jobID == "" {
 		return "", fmt.Errorf("create job token: job ID is required")
@@ -187,7 +187,7 @@ func (c *Client) CreateJobToken(ctx context.Context, jobID string) (string, erro
 	if runnerID := c.tokenManager.AgentID(); runnerID != "" {
 		req.RunnerId = &runnerID
 	}
-	resp, err := c.AuthToken.CreateJobToken(ctx, connect.NewRequest(req))
+	resp, err := c.Auth.CreateJobToken(ctx, connect.NewRequest(req))
 	if err != nil {
 		return "", fmt.Errorf("create job token: %w", err)
 	}

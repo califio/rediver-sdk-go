@@ -16,7 +16,7 @@ import (
 // Clients bundles all Connect service clients tied to the same base URL and
 // bearer transport. Construct via New.
 type Clients struct {
-	AuthToken  authv1connect.TokenServiceClient
+	Auth       authv1connect.AuthServiceClient
 	ArtifactV1 artifactv1connect.ArtifactServiceClient
 	Scanner    scannerv1connect.ScannerServiceClient
 
@@ -43,7 +43,7 @@ func New(baseURL string, tokenFn func() string, httpClient *http.Client) *Client
 	wrapped := withAuthTransport(base, tokenFn)
 
 	return &Clients{
-		AuthToken:  authv1connect.NewTokenServiceClient(wrapped, baseURL),
+		Auth:       authv1connect.NewAuthServiceClient(wrapped, baseURL),
 		ArtifactV1: artifactv1connect.NewArtifactServiceClient(wrapped, baseURL),
 		Scanner:    scannerv1connect.NewScannerServiceClient(wrapped, baseURL),
 

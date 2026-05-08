@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/califio/rediver-sdk-go/internal/auth"
-	scannerv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
+	authv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1"
 	"github.com/califio/rediver-sdk-go/internal/transport"
 	"github.com/califio/rediver-sdk-go/internal/worker"
 	"github.com/califio/rediver-sdk-go/utils"
@@ -47,7 +47,7 @@ func (a *Agent) initSession(ctx context.Context, persistent, syncMetadata bool, 
 		return fmt.Errorf("create transport: %w", err)
 	}
 
-	registerReq := &scannerv1.RegisterAgentRequest{
+	registerReq := &authv1.RegisterAgentRequest{
 		RunnerId:  nil,
 		Hostname:  strOptionalVal(hostname),
 		IpAddress: strOptionalVal(utils.GetIPAddress()),

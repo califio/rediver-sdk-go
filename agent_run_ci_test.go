@@ -22,7 +22,11 @@ import (
 )
 
 type ciAuthTokenService struct {
-	authv1connect.UnimplementedTokenServiceHandler
+	authv1connect.UnimplementedAuthServiceHandler
+}
+
+func (s *ciAuthTokenService) RegisterAgent(_ context.Context, _ *connect.Request[authv1.RegisterAgentRequest]) (*connect.Response[authv1.RegisterAgentResponse], error) {
+	return connect.NewResponse(&authv1.RegisterAgentResponse{RunnerId: "runner-1"}), nil
 }
 
 func (s *ciAuthTokenService) CreateJobToken(_ context.Context, _ *connect.Request[authv1.CreateJobTokenRequest]) (*connect.Response[authv1.CreateJobTokenResponse], error) {
@@ -31,10 +35,6 @@ func (s *ciAuthTokenService) CreateJobToken(_ context.Context, _ *connect.Reques
 
 type ciScannerService struct {
 	scannerv1connect.UnimplementedScannerServiceHandler
-}
-
-func (s *ciScannerService) RegisterAgent(_ context.Context, _ *connect.Request[scannerv1.RegisterAgentRequest]) (*connect.Response[scannerv1.RegisterAgentResponse], error) {
-	return connect.NewResponse(&scannerv1.RegisterAgentResponse{RunnerId: "runner-1"}), nil
 }
 
 func (s *ciScannerService) JobStart(_ context.Context, _ *connect.Request[scannerv1.JobStartRequest]) (*connect.Response[scannerv1.JobStartResponse], error) {
@@ -67,7 +67,7 @@ func (s *ciJobService) CreateCiJob(_ context.Context, _ *connect.Request[agentv1
 func newCITestServer(t *testing.T) string {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.Handle(authv1connect.NewTokenServiceHandler(&ciAuthTokenService{}))
+	mux.Handle(authv1connect.NewAuthServiceHandler(&ciAuthTokenService{}))
 	mux.Handle(scannerv1connect.NewScannerServiceHandler(&ciScannerService{}))
 	mux.Handle(agentv1connect.NewJobServiceHandler(&ciJobService{}))
 	srv := httptest.NewServer(mux)

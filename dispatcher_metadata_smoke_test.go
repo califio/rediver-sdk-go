@@ -12,25 +12,31 @@ import (
 	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 	"connectrpc.com/connect"
 
+	authv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1"
+	"github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1/authv1connect"
 	scannerv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
 	"github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1/scannerv1connect"
 )
 
 // --- test service implementations ---
 
-// dispatchScannerService captures RegisterAgent calls and returns no jobs.
-type dispatchScannerService struct {
-	scannerv1connect.UnimplementedScannerServiceHandler
+// dispatchAuthService captures RegisterAgent calls.
+type dispatchAuthService struct {
+	authv1connect.UnimplementedAuthServiceHandler
 
 	mu      sync.Mutex
-	lastReq *scannerv1.RegisterAgentRequest
+	lastReq *authv1.RegisterAgentRequest
 }
 
-func (s *dispatchScannerService) RegisterAgent(_ context.Context, req *connect.Request[scannerv1.RegisterAgentRequest]) (*connect.Response[scannerv1.RegisterAgentResponse], error) {
+func (s *dispatchAuthService) RegisterAgent(_ context.Context, req *connect.Request[authv1.RegisterAgentRequest]) (*connect.Response[authv1.RegisterAgentResponse], error) {
 	s.mu.Lock()
 	s.lastReq = req.Msg
 	s.mu.Unlock()
-	return connect.NewResponse(&scannerv1.RegisterAgentResponse{RunnerId: "runner-1"}), nil
+	return connect.NewResponse(&authv1.RegisterAgentResponse{RunnerId: "runner-1"}), nil
+}
+
+type dispatchScannerService struct {
+	scannerv1connect.UnimplementedScannerServiceHandler
 }
 
 func (s *dispatchScannerService) Heartbeat(_ context.Context, _ *connect.Request[scannerv1.HeartbeatRequest]) (*connect.Response[scannerv1.HeartbeatResponse], error) {
@@ -70,9 +76,10 @@ func (s *dispatchAgentService) UpdateScanner(ctx context.Context, req *connect.R
 }
 
 // newDispatchSmokeServer creates an httptest server with all required Connect services.
-func newDispatchSmokeServer(t *testing.T, scannerSvc *dispatchScannerService, agentSvc *dispatchAgentService) string {
+func newDispatchSmokeServer(t *testing.T, authSvc *dispatchAuthService, scannerSvc *dispatchScannerService, agentSvc *dispatchAgentService) string {
 	t.Helper()
 	mux := http.NewServeMux()
+	mux.Handle(authv1connect.NewAuthServiceHandler(authSvc))
 	mux.Handle(scannerv1connect.NewScannerServiceHandler(scannerSvc))
 	mux.Handle(agentv1connect.NewAgentServiceHandler(agentSvc))
 	srv := httptest.NewServer(mux)
@@ -83,10 +90,11 @@ func newDispatchSmokeServer(t *testing.T, scannerSvc *dispatchScannerService, ag
 func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 	t.Parallel()
 
+	authSvc := &dispatchAuthService{}
 	scannerSvc := &dispatchScannerService{}
 	agentSvc := &dispatchAgentService{updateSeen: make(chan struct{}, 1)}
 
-	serverURL := newDispatchSmokeServer(t, scannerSvc, agentSvc)
+	serverURL := newDispatchSmokeServer(t, authSvc, scannerSvc, agentSvc)
 
 	schema := map[string]interface{}{
 		"type": "object",
@@ -144,9 +152,9 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 	}
 
 	// --- assertions on RegisterAgent ---
-	scannerSvc.mu.Lock()
-	gotRegisterReq := scannerSvc.lastReq
-	scannerSvc.mu.Unlock()
+	authSvc.mu.Lock()
+	gotRegisterReq := authSvc.lastReq
+	authSvc.mu.Unlock()
 
 	if gotRegisterReq == nil {
 		t.Fatal("RegisterAgent was never called")

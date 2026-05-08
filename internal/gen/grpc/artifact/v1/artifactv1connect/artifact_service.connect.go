@@ -8,8 +8,8 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/artifact/v1"
 	http "net/http"
+	v1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/artifact/v1"
 	strings "strings"
 )
 

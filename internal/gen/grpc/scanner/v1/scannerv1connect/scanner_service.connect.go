@@ -8,8 +8,8 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
 	http "net/http"
+	v1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
 	strings "strings"
 )
 
@@ -33,9 +33,6 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// ScannerServiceRegisterAgentProcedure is the fully-qualified name of the ScannerService's
-	// RegisterAgent RPC.
-	ScannerServiceRegisterAgentProcedure = "/scanner.v1.ScannerService/RegisterAgent"
 	// ScannerServiceHeartbeatProcedure is the fully-qualified name of the ScannerService's Heartbeat
 	// RPC.
 	ScannerServiceHeartbeatProcedure = "/scanner.v1.ScannerService/Heartbeat"
@@ -62,21 +59,19 @@ const (
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	scannerServiceServiceDescriptor             = v1.File_scanner_v1_scanner_service_proto.Services().ByName("ScannerService")
-	scannerServiceRegisterAgentMethodDescriptor = scannerServiceServiceDescriptor.Methods().ByName("RegisterAgent")
-	scannerServiceHeartbeatMethodDescriptor     = scannerServiceServiceDescriptor.Methods().ByName("Heartbeat")
-	scannerServicePollJobMethodDescriptor       = scannerServiceServiceDescriptor.Methods().ByName("PollJob")
-	scannerServiceGetJobDetailMethodDescriptor  = scannerServiceServiceDescriptor.Methods().ByName("GetJobDetail")
-	scannerServiceScanArtifactMethodDescriptor  = scannerServiceServiceDescriptor.Methods().ByName("ScanArtifact")
-	scannerServiceJobStartMethodDescriptor      = scannerServiceServiceDescriptor.Methods().ByName("JobStart")
-	scannerServiceJobHeartbeatMethodDescriptor  = scannerServiceServiceDescriptor.Methods().ByName("JobHeartbeat")
-	scannerServiceJobCompletedMethodDescriptor  = scannerServiceServiceDescriptor.Methods().ByName("JobCompleted")
-	scannerServiceJobFailedMethodDescriptor     = scannerServiceServiceDescriptor.Methods().ByName("JobFailed")
+	scannerServiceServiceDescriptor            = v1.File_scanner_v1_scanner_service_proto.Services().ByName("ScannerService")
+	scannerServiceHeartbeatMethodDescriptor    = scannerServiceServiceDescriptor.Methods().ByName("Heartbeat")
+	scannerServicePollJobMethodDescriptor      = scannerServiceServiceDescriptor.Methods().ByName("PollJob")
+	scannerServiceGetJobDetailMethodDescriptor = scannerServiceServiceDescriptor.Methods().ByName("GetJobDetail")
+	scannerServiceScanArtifactMethodDescriptor = scannerServiceServiceDescriptor.Methods().ByName("ScanArtifact")
+	scannerServiceJobStartMethodDescriptor     = scannerServiceServiceDescriptor.Methods().ByName("JobStart")
+	scannerServiceJobHeartbeatMethodDescriptor = scannerServiceServiceDescriptor.Methods().ByName("JobHeartbeat")
+	scannerServiceJobCompletedMethodDescriptor = scannerServiceServiceDescriptor.Methods().ByName("JobCompleted")
+	scannerServiceJobFailedMethodDescriptor    = scannerServiceServiceDescriptor.Methods().ByName("JobFailed")
 )
 
 // ScannerServiceClient is a client for the scanner.v1.ScannerService service.
 type ScannerServiceClient interface {
-	RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error)
 	Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error)
 	PollJob(context.Context, *connect.Request[v1.PollJobRequest]) (*connect.Response[v1.PollJobResponse], error)
 	GetJobDetail(context.Context, *connect.Request[v1.GetJobDetailRequest]) (*connect.Response[v1.GetJobDetailResponse], error)
@@ -97,12 +92,6 @@ type ScannerServiceClient interface {
 func NewScannerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ScannerServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &scannerServiceClient{
-		registerAgent: connect.NewClient[v1.RegisterAgentRequest, v1.RegisterAgentResponse](
-			httpClient,
-			baseURL+ScannerServiceRegisterAgentProcedure,
-			connect.WithSchema(scannerServiceRegisterAgentMethodDescriptor),
-			connect.WithClientOptions(opts...),
-		),
 		heartbeat: connect.NewClient[v1.HeartbeatRequest, v1.HeartbeatResponse](
 			httpClient,
 			baseURL+ScannerServiceHeartbeatProcedure,
@@ -156,20 +145,14 @@ func NewScannerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // scannerServiceClient implements ScannerServiceClient.
 type scannerServiceClient struct {
-	registerAgent *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
-	heartbeat     *connect.Client[v1.HeartbeatRequest, v1.HeartbeatResponse]
-	pollJob       *connect.Client[v1.PollJobRequest, v1.PollJobResponse]
-	getJobDetail  *connect.Client[v1.GetJobDetailRequest, v1.GetJobDetailResponse]
-	scanArtifact  *connect.Client[v1.ScanArtifactRequest, v1.ScanArtifactResponse]
-	jobStart      *connect.Client[v1.JobStartRequest, v1.JobStartResponse]
-	jobHeartbeat  *connect.Client[v1.JobHeartbeatRequest, v1.JobHeartbeatResponse]
-	jobCompleted  *connect.Client[v1.JobCompletedRequest, v1.JobCompletedResponse]
-	jobFailed     *connect.Client[v1.JobFailedRequest, v1.JobFailedResponse]
-}
-
-// RegisterAgent calls scanner.v1.ScannerService.RegisterAgent.
-func (c *scannerServiceClient) RegisterAgent(ctx context.Context, req *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error) {
-	return c.registerAgent.CallUnary(ctx, req)
+	heartbeat    *connect.Client[v1.HeartbeatRequest, v1.HeartbeatResponse]
+	pollJob      *connect.Client[v1.PollJobRequest, v1.PollJobResponse]
+	getJobDetail *connect.Client[v1.GetJobDetailRequest, v1.GetJobDetailResponse]
+	scanArtifact *connect.Client[v1.ScanArtifactRequest, v1.ScanArtifactResponse]
+	jobStart     *connect.Client[v1.JobStartRequest, v1.JobStartResponse]
+	jobHeartbeat *connect.Client[v1.JobHeartbeatRequest, v1.JobHeartbeatResponse]
+	jobCompleted *connect.Client[v1.JobCompletedRequest, v1.JobCompletedResponse]
+	jobFailed    *connect.Client[v1.JobFailedRequest, v1.JobFailedResponse]
 }
 
 // Heartbeat calls scanner.v1.ScannerService.Heartbeat.
@@ -214,7 +197,6 @@ func (c *scannerServiceClient) JobFailed(ctx context.Context, req *connect.Reque
 
 // ScannerServiceHandler is an implementation of the scanner.v1.ScannerService service.
 type ScannerServiceHandler interface {
-	RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error)
 	Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error)
 	PollJob(context.Context, *connect.Request[v1.PollJobRequest]) (*connect.Response[v1.PollJobResponse], error)
 	GetJobDetail(context.Context, *connect.Request[v1.GetJobDetailRequest]) (*connect.Response[v1.GetJobDetailResponse], error)
@@ -231,12 +213,6 @@ type ScannerServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewScannerServiceHandler(svc ScannerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	scannerServiceRegisterAgentHandler := connect.NewUnaryHandler(
-		ScannerServiceRegisterAgentProcedure,
-		svc.RegisterAgent,
-		connect.WithSchema(scannerServiceRegisterAgentMethodDescriptor),
-		connect.WithHandlerOptions(opts...),
-	)
 	scannerServiceHeartbeatHandler := connect.NewUnaryHandler(
 		ScannerServiceHeartbeatProcedure,
 		svc.Heartbeat,
@@ -287,8 +263,6 @@ func NewScannerServiceHandler(svc ScannerServiceHandler, opts ...connect.Handler
 	)
 	return "/scanner.v1.ScannerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case ScannerServiceRegisterAgentProcedure:
-			scannerServiceRegisterAgentHandler.ServeHTTP(w, r)
 		case ScannerServiceHeartbeatProcedure:
 			scannerServiceHeartbeatHandler.ServeHTTP(w, r)
 		case ScannerServicePollJobProcedure:
@@ -313,10 +287,6 @@ func NewScannerServiceHandler(svc ScannerServiceHandler, opts ...connect.Handler
 
 // UnimplementedScannerServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedScannerServiceHandler struct{}
-
-func (UnimplementedScannerServiceHandler) RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scanner.v1.ScannerService.RegisterAgent is not implemented"))
-}
 
 func (UnimplementedScannerServiceHandler) Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scanner.v1.ScannerService.Heartbeat is not implemented"))
