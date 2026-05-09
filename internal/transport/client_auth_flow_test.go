@@ -8,34 +8,37 @@ import (
 
 	"connectrpc.com/connect"
 
+	"buf.build/gen/go/rediver/api/connectrpc/go/scanner/v1/scannerv1connect"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 	"github.com/califio/rediver-sdk-go/internal/auth"
-	authv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1"
-	"github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1/authv1connect"
-	scannerv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
-	"github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1/scannerv1connect"
 )
 
-type authFlowAuthService struct {
-	authv1connect.UnimplementedAuthServiceHandler
+// authFlowScannerService implements ScannerService for the auth-flow test,
+// handling RegisterMachine, CreateJobToken, PollJob, and JobStart.
+type authFlowScannerService struct {
+	scannerv1connect.UnimplementedScannerServiceHandler
+	scannerv1connect.UnimplementedJobServiceHandler
 
-	t              *testing.T
-	registerSeen   bool
-	createJobCalls int
+	t                  *testing.T
+	registerSeen       bool
+	createJobCalls     int
+	pollSeen           bool
+	jobStartBearerSeen bool
 }
 
-func (s *authFlowAuthService) RegisterAgent(_ context.Context, req *connect.Request[authv1.RegisterAgentRequest]) (*connect.Response[authv1.RegisterAgentResponse], error) {
+func (s *authFlowScannerService) RegisterMachine(_ context.Context, req *connect.Request[scannerv1.RegisterMachineRequest]) (*connect.Response[scannerv1.RegisterMachineResponse], error) {
 	s.t.Helper()
 	s.registerSeen = true
 	if got := req.Header().Get("X-Token"); got != "agent-token" {
-		s.t.Fatalf("RegisterAgent X-Token = %q, want agent-token", got)
+		s.t.Fatalf("RegisterMachine X-Token = %q, want agent-token", got)
 	}
 	if got := req.Header().Get("Authorization"); got != "" {
-		s.t.Fatalf("RegisterAgent Authorization = %q, want empty", got)
+		s.t.Fatalf("RegisterMachine Authorization = %q, want empty", got)
 	}
-	return connect.NewResponse(&authv1.RegisterAgentResponse{RunnerId: "runner-1"}), nil
+	return connect.NewResponse(&scannerv1.RegisterMachineResponse{RunnerId: "runner-1"}), nil
 }
 
-func (s *authFlowAuthService) CreateJobToken(_ context.Context, req *connect.Request[authv1.CreateJobTokenRequest]) (*connect.Response[authv1.CreateJobTokenResponse], error) {
+func (s *authFlowScannerService) CreateJobToken(_ context.Context, req *connect.Request[scannerv1.CreateJobTokenRequest]) (*connect.Response[scannerv1.CreateJobTokenResponse], error) {
 	s.t.Helper()
 	s.createJobCalls++
 	if got := req.Header().Get("X-Token"); got != "agent-token" {
@@ -50,15 +53,7 @@ func (s *authFlowAuthService) CreateJobToken(_ context.Context, req *connect.Req
 	if got := req.Msg.GetRunnerId(); got != "runner-1" {
 		s.t.Fatalf("CreateJobToken runner_id = %q, want runner-1", got)
 	}
-	return connect.NewResponse(&authv1.CreateJobTokenResponse{Token: "job-jwt"}), nil
-}
-
-type authFlowScannerService struct {
-	scannerv1connect.UnimplementedScannerServiceHandler
-
-	t                  *testing.T
-	pollSeen           bool
-	jobStartBearerSeen bool
+	return connect.NewResponse(&scannerv1.CreateJobTokenResponse{Token: "job-jwt"}), nil
 }
 
 func (s *authFlowScannerService) PollJob(_ context.Context, req *connect.Request[scannerv1.PollJobRequest]) (*connect.Response[scannerv1.PollJobResponse], error) {
@@ -91,12 +86,11 @@ func (s *authFlowScannerService) JobStart(_ context.Context, req *connect.Reques
 func TestClient_UsesAgentTokenForAgentPlaneAndBearerForJobPlane(t *testing.T) {
 	t.Parallel()
 
-	authSvc := &authFlowAuthService{t: t}
-	scannerSvc := &authFlowScannerService{t: t}
+	svc := &authFlowScannerService{t: t}
 
 	mux := http.NewServeMux()
-	mux.Handle(authv1connect.NewAuthServiceHandler(authSvc))
-	mux.Handle(scannerv1connect.NewScannerServiceHandler(scannerSvc))
+	mux.Handle(scannerv1connect.NewScannerServiceHandler(svc))
+	mux.Handle(scannerv1connect.NewJobServiceHandler(svc))
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
@@ -109,9 +103,7 @@ func TestClient_UsesAgentTokenForAgentPlaneAndBearerForJobPlane(t *testing.T) {
 		t.Fatalf("NewClient() error = %v", err)
 	}
 
-	runnerID, err := client.RegisterAgent(context.Background(), &authv1.RegisterAgentRequest{
-		Scanners: []string{"scanner-1"},
-	})
+	runnerID, err := client.RegisterAgent(context.Background(), &scannerv1.RegisterMachineRequest{})
 	if err != nil {
 		t.Fatalf("RegisterAgent() error = %v", err)
 	}
@@ -131,16 +123,16 @@ func TestClient_UsesAgentTokenForAgentPlaneAndBearerForJobPlane(t *testing.T) {
 		t.Fatalf("JobStart() error = %v", err)
 	}
 
-	if !authSvc.registerSeen {
-		t.Fatal("RegisterAgent was not called")
+	if !svc.registerSeen {
+		t.Fatal("RegisterMachine was not called")
 	}
-	if !scannerSvc.pollSeen {
+	if !svc.pollSeen {
 		t.Fatal("PollJob was not called")
 	}
-	if !scannerSvc.jobStartBearerSeen {
+	if !svc.jobStartBearerSeen {
 		t.Fatal("JobStart did not receive bearer auth")
 	}
-	if authSvc.createJobCalls != 1 {
-		t.Fatalf("CreateJobToken calls = %d, want 1", authSvc.createJobCalls)
+	if svc.createJobCalls != 1 {
+		t.Fatalf("CreateJobToken calls = %d, want 1", svc.createJobCalls)
 	}
 }

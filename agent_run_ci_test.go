@@ -11,65 +11,60 @@ import (
 	"testing"
 	"time"
 
-	"buf.build/gen/go/rediver/api/connectrpc/go/agent/v1/agentv1connect"
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 	"connectrpc.com/connect"
 
-	authv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1"
-	"github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1/authv1connect"
-	scannerv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
-	"github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1/scannerv1connect"
+	"buf.build/gen/go/rediver/api/connectrpc/go/scanner/v1/scannerv1connect"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 )
 
-type ciAuthTokenService struct {
-	authv1connect.UnimplementedAuthServiceHandler
-}
-
-func (s *ciAuthTokenService) RegisterAgent(_ context.Context, _ *connect.Request[authv1.RegisterAgentRequest]) (*connect.Response[authv1.RegisterAgentResponse], error) {
-	return connect.NewResponse(&authv1.RegisterAgentResponse{RunnerId: "runner-1"}), nil
-}
-
-func (s *ciAuthTokenService) CreateJobToken(_ context.Context, _ *connect.Request[authv1.CreateJobTokenRequest]) (*connect.Response[authv1.CreateJobTokenResponse], error) {
-	return connect.NewResponse(&authv1.CreateJobTokenResponse{Token: "job-jwt-1"}), nil
-}
-
-type ciScannerService struct {
+type ciScannerTokenService struct {
 	scannerv1connect.UnimplementedScannerServiceHandler
 }
 
-func (s *ciScannerService) JobStart(_ context.Context, _ *connect.Request[scannerv1.JobStartRequest]) (*connect.Response[scannerv1.JobStartResponse], error) {
-	return connect.NewResponse(&scannerv1.JobStartResponse{Success: true}), nil
+func (s *ciScannerTokenService) RegisterMachine(_ context.Context, _ *connect.Request[scannerv1.RegisterMachineRequest]) (*connect.Response[scannerv1.RegisterMachineResponse], error) {
+	return connect.NewResponse(&scannerv1.RegisterMachineResponse{RunnerId: "runner-1"}), nil
 }
 
-func (s *ciScannerService) JobCompleted(_ context.Context, _ *connect.Request[scannerv1.JobCompletedRequest]) (*connect.Response[scannerv1.JobCompletedResponse], error) {
-	return connect.NewResponse(&scannerv1.JobCompletedResponse{Success: true}), nil
-}
-
-func (s *ciScannerService) JobFailed(_ context.Context, _ *connect.Request[scannerv1.JobFailedRequest]) (*connect.Response[scannerv1.JobFailedResponse], error) {
-	return connect.NewResponse(&scannerv1.JobFailedResponse{Success: true}), nil
-}
-
-func (s *ciScannerService) JobHeartbeat(_ context.Context, _ *connect.Request[scannerv1.JobHeartbeatRequest]) (*connect.Response[scannerv1.JobHeartbeatResponse], error) {
-	return connect.NewResponse(&scannerv1.JobHeartbeatResponse{Success: true}), nil
+func (s *ciScannerTokenService) CreateJobToken(_ context.Context, _ *connect.Request[scannerv1.CreateJobTokenRequest]) (*connect.Response[scannerv1.CreateJobTokenResponse], error) {
+	return connect.NewResponse(&scannerv1.CreateJobTokenResponse{Token: "job-jwt-1"}), nil
 }
 
 type ciJobService struct {
-	agentv1connect.UnimplementedJobServiceHandler
+	scannerv1connect.UnimplementedJobServiceHandler
 }
 
-func (s *ciJobService) CreateCiJob(_ context.Context, _ *connect.Request[agentv1.CreateCiJobRequest]) (*connect.Response[agentv1.CreateCiJobResponse], error) {
-	return connect.NewResponse(&agentv1.CreateCiJobResponse{
+func (s *ciJobService) CreateCiJob(_ context.Context, _ *connect.Request[scannerv1.CreateCiJobRequest]) (*connect.Response[scannerv1.CreateCiJobResponse], error) {
+	return connect.NewResponse(&scannerv1.CreateCiJobResponse{
 		Success: true,
 		JobId:   "job-1",
 	}), nil
 }
 
+func (s *ciJobService) JobStart(_ context.Context, _ *connect.Request[scannerv1.JobStartRequest]) (*connect.Response[scannerv1.JobStartResponse], error) {
+	return connect.NewResponse(&scannerv1.JobStartResponse{Success: true}), nil
+}
+
+func (s *ciJobService) JobCompleted(_ context.Context, _ *connect.Request[scannerv1.JobCompletedRequest]) (*connect.Response[scannerv1.JobCompletedResponse], error) {
+	return connect.NewResponse(&scannerv1.JobCompletedResponse{Success: true}), nil
+}
+
+func (s *ciJobService) JobFailed(_ context.Context, _ *connect.Request[scannerv1.JobFailedRequest]) (*connect.Response[scannerv1.JobFailedResponse], error) {
+	return connect.NewResponse(&scannerv1.JobFailedResponse{Success: true}), nil
+}
+
+func (s *ciJobService) JobHeartbeat(_ context.Context, _ *connect.Request[scannerv1.JobHeartbeatRequest]) (*connect.Response[scannerv1.JobHeartbeatResponse], error) {
+	return connect.NewResponse(&scannerv1.JobHeartbeatResponse{Success: true}), nil
+}
+
+func (s *ciJobService) AppendJobEvents(_ context.Context, _ *connect.Request[scannerv1.AppendJobEventsRequest]) (*connect.Response[scannerv1.AppendJobEventsResponse], error) {
+	return connect.NewResponse(&scannerv1.AppendJobEventsResponse{Success: true}), nil
+}
+
 func newCITestServer(t *testing.T) string {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.Handle(authv1connect.NewAuthServiceHandler(&ciAuthTokenService{}))
-	mux.Handle(scannerv1connect.NewScannerServiceHandler(&ciScannerService{}))
-	mux.Handle(agentv1connect.NewJobServiceHandler(&ciJobService{}))
+	mux.Handle(scannerv1connect.NewScannerServiceHandler(&ciScannerTokenService{}))
+	mux.Handle(scannerv1connect.NewJobServiceHandler(&ciJobService{}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL

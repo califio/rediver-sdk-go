@@ -7,26 +7,19 @@ package connectclient
 import (
 	"net/http"
 
-	agentv1connect "buf.build/gen/go/rediver/api/connectrpc/go/agent/v1/agentv1connect"
-	artifactv1connect "github.com/califio/rediver-sdk-go/internal/gen/grpc/artifact/v1/artifactv1connect"
-	authv1connect "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1/authv1connect"
-	"github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1/scannerv1connect"
+	artifactv1connect "buf.build/gen/go/rediver/api/connectrpc/go/artifact/v1/artifactv1connect"
+	"buf.build/gen/go/rediver/api/connectrpc/go/scanner/v1/scannerv1connect"
 )
 
 // Clients bundles all Connect service clients tied to the same base URL and
 // bearer transport. Construct via New.
 type Clients struct {
-	Auth       authv1connect.AuthServiceClient
-	ArtifactV1 artifactv1connect.ArtifactServiceClient
-	Scanner    scannerv1connect.ScannerServiceClient
-
-	Token    agentv1connect.TokenServiceClient
-	Agent    agentv1connect.AgentServiceClient
-	Job      agentv1connect.JobServiceClient
-	Artifact agentv1connect.ArtifactServiceClient
-	Finding  agentv1connect.FindingServiceClient
-	Asset    agentv1connect.AssetServiceClient
-	Leak     agentv1connect.LeakServiceClient
+	ArtifactV1     artifactv1connect.ArtifactServiceClient
+	Scanner        scannerv1connect.ScannerServiceClient
+	ScannerJob     scannerv1connect.JobServiceClient
+	ScannerFinding scannerv1connect.FindingServiceClient
+	ScannerAsset   scannerv1connect.AssetServiceClient
+	ScannerLeak    scannerv1connect.LeakServiceClient
 }
 
 // New constructs Clients with the given base URL and a transport that injects
@@ -43,17 +36,12 @@ func New(baseURL string, tokenFn func() string, httpClient *http.Client) *Client
 	wrapped := withAuthTransport(base, tokenFn)
 
 	return &Clients{
-		Auth:       authv1connect.NewAuthServiceClient(wrapped, baseURL),
-		ArtifactV1: artifactv1connect.NewArtifactServiceClient(wrapped, baseURL),
-		Scanner:    scannerv1connect.NewScannerServiceClient(wrapped, baseURL),
-
-		Token:    agentv1connect.NewTokenServiceClient(wrapped, baseURL),
-		Agent:    agentv1connect.NewAgentServiceClient(wrapped, baseURL),
-		Job:      agentv1connect.NewJobServiceClient(wrapped, baseURL),
-		Artifact: agentv1connect.NewArtifactServiceClient(wrapped, baseURL),
-		Finding:  agentv1connect.NewFindingServiceClient(wrapped, baseURL),
-		Asset:    agentv1connect.NewAssetServiceClient(wrapped, baseURL),
-		Leak:     agentv1connect.NewLeakServiceClient(wrapped, baseURL),
+		ArtifactV1:     artifactv1connect.NewArtifactServiceClient(wrapped, baseURL),
+		Scanner:        scannerv1connect.NewScannerServiceClient(wrapped, baseURL),
+		ScannerJob:     scannerv1connect.NewJobServiceClient(wrapped, baseURL),
+		ScannerFinding: scannerv1connect.NewFindingServiceClient(wrapped, baseURL),
+		ScannerAsset:   scannerv1connect.NewAssetServiceClient(wrapped, baseURL),
+		ScannerLeak:    scannerv1connect.NewLeakServiceClient(wrapped, baseURL),
 	}
 }
 

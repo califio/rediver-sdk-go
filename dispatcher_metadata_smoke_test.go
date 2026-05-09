@@ -8,63 +8,36 @@ import (
 	"testing"
 	"time"
 
-	"buf.build/gen/go/rediver/api/connectrpc/go/agent/v1/agentv1connect"
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
 	"connectrpc.com/connect"
 
-	authv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1"
-	"github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1/authv1connect"
-	scannerv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1"
-	"github.com/califio/rediver-sdk-go/internal/gen/grpc/scanner/v1/scannerv1connect"
+	"buf.build/gen/go/rediver/api/connectrpc/go/scanner/v1/scannerv1connect"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 )
 
 // --- test service implementations ---
 
-// dispatchAuthService captures RegisterAgent calls.
-type dispatchAuthService struct {
-	authv1connect.UnimplementedAuthServiceHandler
-
-	mu      sync.Mutex
-	lastReq *authv1.RegisterAgentRequest
-}
-
-func (s *dispatchAuthService) RegisterAgent(_ context.Context, req *connect.Request[authv1.RegisterAgentRequest]) (*connect.Response[authv1.RegisterAgentResponse], error) {
-	s.mu.Lock()
-	s.lastReq = req.Msg
-	s.mu.Unlock()
-	return connect.NewResponse(&authv1.RegisterAgentResponse{RunnerId: "runner-1"}), nil
-}
-
+// dispatchScannerService implements ScannerService, capturing RegisterMachine and UpdateScanner calls.
 type dispatchScannerService struct {
 	scannerv1connect.UnimplementedScannerServiceHandler
+
+	mu         sync.Mutex
+	lastRegReq *scannerv1.RegisterMachineRequest
+	updateReqs []*scannerv1.UpdateScannerRequest
+	updateSeen chan struct{}
+}
+
+func (s *dispatchScannerService) RegisterMachine(_ context.Context, req *connect.Request[scannerv1.RegisterMachineRequest]) (*connect.Response[scannerv1.RegisterMachineResponse], error) {
+	s.mu.Lock()
+	s.lastRegReq = req.Msg
+	s.mu.Unlock()
+	return connect.NewResponse(&scannerv1.RegisterMachineResponse{RunnerId: "runner-1"}), nil
 }
 
 func (s *dispatchScannerService) Heartbeat(_ context.Context, _ *connect.Request[scannerv1.HeartbeatRequest]) (*connect.Response[scannerv1.HeartbeatResponse], error) {
 	return connect.NewResponse(&scannerv1.HeartbeatResponse{}), nil
 }
 
-func (s *dispatchScannerService) PollJob(_ context.Context, _ *connect.Request[scannerv1.PollJobRequest]) (*connect.Response[scannerv1.PollJobResponse], error) {
-	return connect.NewResponse(&scannerv1.PollJobResponse{}), nil
-}
-
-// dispatchAgentService captures UpdateScanner calls.
-type dispatchAgentService struct {
-	agentv1connect.UnimplementedAgentServiceHandler
-
-	mu         sync.Mutex
-	updateReqs []*agentv1.UpdateScannerRequest
-	updateSeen chan struct{}
-}
-
-func (s *dispatchAgentService) Heartbeat(_ context.Context, _ *connect.Request[agentv1.HeartbeatRequest]) (*connect.Response[agentv1.HeartbeatResponse], error) {
-	return connect.NewResponse(&agentv1.HeartbeatResponse{}), nil
-}
-
-func (s *dispatchAgentService) UpdateScanner(ctx context.Context, req *connect.Request[agentv1.UpdateScannerRequest]) (*connect.Response[agentv1.UpdateScannerResponse], error) {
-	// Verify X-Token header was injected by authRetryTransport.
-	if got := req.Header().Get("X-Token"); got != "agent-token" {
-		// We can't call t.Errorf from here (no testing.T); store for assertion in test.
-	}
+func (s *dispatchScannerService) UpdateScanner(_ context.Context, req *connect.Request[scannerv1.UpdateScannerRequest]) (*connect.Response[scannerv1.UpdateScannerResponse], error) {
 	s.mu.Lock()
 	s.updateReqs = append(s.updateReqs, req.Msg)
 	s.mu.Unlock()
@@ -72,16 +45,18 @@ func (s *dispatchAgentService) UpdateScanner(ctx context.Context, req *connect.R
 	case s.updateSeen <- struct{}{}:
 	default:
 	}
-	return connect.NewResponse(&agentv1.UpdateScannerResponse{}), nil
+	return connect.NewResponse(&scannerv1.UpdateScannerResponse{}), nil
+}
+
+func (s *dispatchScannerService) PollJob(_ context.Context, _ *connect.Request[scannerv1.PollJobRequest]) (*connect.Response[scannerv1.PollJobResponse], error) {
+	return connect.NewResponse(&scannerv1.PollJobResponse{}), nil
 }
 
 // newDispatchSmokeServer creates an httptest server with all required Connect services.
-func newDispatchSmokeServer(t *testing.T, authSvc *dispatchAuthService, scannerSvc *dispatchScannerService, agentSvc *dispatchAgentService) string {
+func newDispatchSmokeServer(t *testing.T, scannerSvc *dispatchScannerService) string {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.Handle(authv1connect.NewAuthServiceHandler(authSvc))
 	mux.Handle(scannerv1connect.NewScannerServiceHandler(scannerSvc))
-	mux.Handle(agentv1connect.NewAgentServiceHandler(agentSvc))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -90,11 +65,9 @@ func newDispatchSmokeServer(t *testing.T, authSvc *dispatchAuthService, scannerS
 func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 	t.Parallel()
 
-	authSvc := &dispatchAuthService{}
-	scannerSvc := &dispatchScannerService{}
-	agentSvc := &dispatchAgentService{updateSeen: make(chan struct{}, 1)}
+	scannerSvc := &dispatchScannerService{updateSeen: make(chan struct{}, 1)}
 
-	serverURL := newDispatchSmokeServer(t, authSvc, scannerSvc, agentSvc)
+	serverURL := newDispatchSmokeServer(t, scannerSvc)
 
 	schema := map[string]interface{}{
 		"type": "object",
@@ -135,7 +108,7 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 	}()
 
 	select {
-	case <-agentSvc.updateSeen:
+	case <-scannerSvc.updateSeen:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for scanner metadata sync")
 	}
@@ -151,22 +124,19 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 		t.Fatal("timed out waiting for dispatcher shutdown")
 	}
 
-	// --- assertions on RegisterAgent ---
-	authSvc.mu.Lock()
-	gotRegisterReq := authSvc.lastReq
-	authSvc.mu.Unlock()
+	// --- assertions on RegisterMachine ---
+	scannerSvc.mu.Lock()
+	gotRegisterReq := scannerSvc.lastRegReq
+	scannerSvc.mu.Unlock()
 
 	if gotRegisterReq == nil {
-		t.Fatal("RegisterAgent was never called")
-	}
-	if len(gotRegisterReq.GetScanners()) != 1 || gotRegisterReq.GetScanners()[0] != "calif-audit" {
-		t.Fatalf("register scanners = %v, want [calif-audit]", gotRegisterReq.GetScanners())
+		t.Fatal("RegisterMachine was never called")
 	}
 
 	// --- assertions on UpdateScanner ---
-	agentSvc.mu.Lock()
-	updateReqs := agentSvc.updateReqs
-	agentSvc.mu.Unlock()
+	scannerSvc.mu.Lock()
+	updateReqs := scannerSvc.updateReqs
+	scannerSvc.mu.Unlock()
 
 	if len(updateReqs) != 1 {
 		t.Fatalf("updateCalls = %d, want 1", len(updateReqs))
@@ -197,10 +167,10 @@ func TestDispatch_SmokeSyncsScannerMetadata(t *testing.T) {
 	if len(assetTypes) != 2 {
 		t.Fatalf("asset_types len = %d, want 2", len(assetTypes))
 	}
-	if assetTypes[0] != agentv1.AssetType_ASSET_TYPE_REPOSITORY {
+	if assetTypes[0] != scannerv1.AssetType_ASSET_TYPE_REPOSITORY {
 		t.Fatalf("asset_types[0] = %v, want ASSET_TYPE_REPOSITORY", assetTypes[0])
 	}
-	if assetTypes[1] != agentv1.AssetType_ASSET_TYPE_SERVICE {
+	if assetTypes[1] != scannerv1.AssetType_ASSET_TYPE_SERVICE {
 		t.Fatalf("asset_types[1] = %v, want ASSET_TYPE_SERVICE", assetTypes[1])
 	}
 }

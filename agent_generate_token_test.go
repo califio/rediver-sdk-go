@@ -8,32 +8,31 @@ import (
 
 	"connectrpc.com/connect"
 
-	authv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1"
-	"github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1/authv1connect"
+	"buf.build/gen/go/rediver/api/connectrpc/go/scanner/v1/scannerv1connect"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 )
 
 // --- minimal Connect service implementations for test ---
 
-// testAuthService captures RegisterAgent requests during Agent init.
-type testAuthService struct {
-	authv1connect.UnimplementedAuthServiceHandler
+// testScannerService captures RegisterMachine requests during Agent init.
+type testScannerService struct {
+	scannerv1connect.UnimplementedScannerServiceHandler
 	runnerID string
-	lastReq  *authv1.RegisterAgentRequest
+	lastReq  *scannerv1.RegisterMachineRequest
 }
 
-func (s *testAuthService) RegisterAgent(_ context.Context, req *connect.Request[authv1.RegisterAgentRequest]) (*connect.Response[authv1.RegisterAgentResponse], error) {
+func (s *testScannerService) RegisterMachine(_ context.Context, req *connect.Request[scannerv1.RegisterMachineRequest]) (*connect.Response[scannerv1.RegisterMachineResponse], error) {
 	s.lastReq = req.Msg
-	return connect.NewResponse(&authv1.RegisterAgentResponse{RunnerId: s.runnerID}), nil
+	return connect.NewResponse(&scannerv1.RegisterMachineResponse{RunnerId: s.runnerID}), nil
 }
 
 // newTestConnectServer mounts only the services used by Agent init:
-// AuthService (for RegisterAgent). Returns the server URL and a reference
-// to testAuthService so tests can inspect captured requests.
-func newTestConnectServer(t *testing.T, svc *testAuthService) string {
+// ScannerService (for RegisterMachine). Returns the server URL and a reference
+// to testScannerService so tests can inspect captured requests.
+func newTestConnectServer(t *testing.T, svc *testScannerService) string {
 	t.Helper()
 	mux := http.NewServeMux()
-	path, handler := authv1connect.NewAuthServiceHandler(svc)
-	mux.Handle(path, handler)
+	mux.Handle(scannerv1connect.NewScannerServiceHandler(svc))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -42,7 +41,7 @@ func newTestConnectServer(t *testing.T, svc *testAuthService) string {
 func TestNewAgent_TaskDirectJobRegistersScanner(t *testing.T) {
 	t.Parallel()
 
-	svc := &testAuthService{runnerID: "runner-1"}
+	svc := &testScannerService{runnerID: "runner-1"}
 	serverURL := newTestConnectServer(t, svc)
 
 	scanner := NewScanner("calif-audit", []TargetType{TargetTypeRepository}, nil)
@@ -58,17 +57,14 @@ func TestNewAgent_TaskDirectJobRegistersScanner(t *testing.T) {
 
 	req := svc.lastReq
 	if req == nil {
-		t.Fatal("RegisterAgent was never called")
-	}
-	if len(req.GetScanners()) != 1 || req.GetScanners()[0] != "calif-audit" {
-		t.Fatalf("scanners = %v, want [calif-audit]", req.GetScanners())
+		t.Fatal("RegisterMachine was never called")
 	}
 }
 
 func TestNewAgent_TaskPollRegistersWithoutRunnerID(t *testing.T) {
 	t.Parallel()
 
-	svc := &testAuthService{runnerID: "runner-1"}
+	svc := &testScannerService{runnerID: "runner-1"}
 	serverURL := newTestConnectServer(t, svc)
 
 	scanner := NewScanner("calif-audit", []TargetType{TargetTypeRepository}, nil)
@@ -84,7 +80,7 @@ func TestNewAgent_TaskPollRegistersWithoutRunnerID(t *testing.T) {
 
 	req := svc.lastReq
 	if req == nil {
-		t.Fatal("RegisterAgent was never called")
+		t.Fatal("RegisterMachine was never called")
 	}
 	if req.RunnerId != nil {
 		t.Fatalf("runner_id = %v, want nil", *req.RunnerId)

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 	"github.com/califio/rediver-sdk-go/internal/auth"
-	authv1 "github.com/califio/rediver-sdk-go/internal/gen/grpc/auth/v1"
 	"github.com/califio/rediver-sdk-go/internal/transport"
 	"github.com/califio/rediver-sdk-go/internal/worker"
 	"github.com/califio/rediver-sdk-go/utils"
@@ -47,12 +47,11 @@ func (a *Agent) initSession(ctx context.Context, persistent, syncMetadata bool, 
 		return fmt.Errorf("create transport: %w", err)
 	}
 
-	registerReq := &authv1.RegisterAgentRequest{
+	registerReq := &scannerv1.RegisterMachineRequest{
 		RunnerId:  nil,
 		Hostname:  strOptionalVal(hostname),
 		IpAddress: strOptionalVal(utils.GetIPAddress()),
 		Version:   strOptionalVal(a.config.version),
-		Scanners:  []string{a.scannerName},
 	}
 
 	var runnerID string
@@ -88,4 +87,11 @@ func (a *Agent) initSession(ctx context.Context, persistent, syncMetadata bool, 
 		"persistent", persistent,
 	)
 	return nil
+}
+
+func strOptionalVal(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
