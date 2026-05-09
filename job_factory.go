@@ -1,11 +1,12 @@
 package rediver
 
 import (
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	commonv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/common/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 )
 
 // newJob creates a Job from a GetJobDetailResponse proto (standard dispatch mode).
-func newJob(detail *agentv1.GetJobDetailResponse) Job {
+func newJob(detail *scannerv1.GetJobDetailResponse) Job {
 	j := &job{detail: detail}
 	if detail != nil {
 		j.resolveParams()
@@ -15,21 +16,13 @@ func newJob(detail *agentv1.GetJobDetailResponse) Job {
 
 // newCIJob creates a Job from CIContext data (CI/local mode). No GetJobDetailResponse needed.
 func newCIJob(jobID string, ci *CIContext, scannerName string, params map[string]interface{}) Job {
-	refType := agentv1.GitRefType_GIT_REF_TYPE_BRANCH
-	switch ci.Ref.Type {
-	case CIRefTypeTag:
-		refType = agentv1.GitRefType_GIT_REF_TYPE_TAG
-	case CIRefTypePRMR:
-		refType = agentv1.GitRefType_GIT_REF_TYPE_PR_MR
-	}
-
 	// Map CI ref type to proto CiEvent.
-	ciEvent := agentv1.CiEvent_CI_EVENT_PUSH
+	ciEvent := commonv1.CiEvent_CI_EVENT_PUSH
 	if ci.Ref.Type == CIRefTypePRMR {
-		ciEvent = agentv1.CiEvent_CI_EVENT_PULL_REQUEST
+		ciEvent = commonv1.CiEvent_CI_EVENT_PULL_REQUEST
 	}
 
-	repoCtx := &agentv1.RepositoryJobContext{
+	repoCtx := &commonv1.RepositoryTarget{
 		Url:    ci.Repo.URL,
 		Event:  ciEvent,
 		Branch: strOptionalVal(ci.Ref.Branch),
@@ -43,14 +36,12 @@ func newCIJob(jobID string, ci *CIContext, scannerName string, params map[string
 	if ci.Ref.BaseBranch != "" {
 		repoCtx.BaseBranch = &ci.Ref.BaseBranch
 	}
-	// ref type embedded in CiJobGitRef for CreateCiJob; here only event matters.
-	_ = refType
 
-	detail := &agentv1.GetJobDetailResponse{
+	detail := &scannerv1.GetJobDetailResponse{
 		Id:      jobID,
 		Scanner: scannerName,
-		Target: &agentv1.JobTarget{
-			Repository: repoCtx,
+		Target: &scannerv1.JobTarget{
+			Repository: &scannerv1.RepositoryJobTarget{Target: repoCtx},
 		},
 	}
 	if len(params) > 0 {

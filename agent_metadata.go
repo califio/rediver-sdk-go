@@ -3,7 +3,7 @@ package rediver
 import (
 	"context"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -12,7 +12,7 @@ import (
 // not fatal — metadata sync is best-effort.
 func (a *Agent) syncScannerMetadata(ctx context.Context) {
 	name := a.scanner.Name()
-	req := &agentv1.UpdateScannerRequest{Name: name}
+	req := &scannerv1.UpdateScannerRequest{Name: name}
 	var needsUpdate bool
 
 	if dn, ok := a.scanner.(interface{ DisplayName() string }); ok {
@@ -42,7 +42,7 @@ func (a *Agent) syncScannerMetadata(ctx context.Context) {
 	}
 
 	if types := a.scanner.AssetTypes(); len(types) > 0 {
-		assetTypes := make([]agentv1.AssetType, len(types))
+		assetTypes := make([]scannerv1.AssetType, len(types))
 		for i, t := range types {
 			assetTypes[i] = toProtoAssetType(t)
 		}

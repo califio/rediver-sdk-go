@@ -5,7 +5,7 @@ import (
 	"io"
 	"log/slog"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 	"github.com/califio/rediver-sdk-go/utils"
 )
 
@@ -102,7 +102,7 @@ type artifactDownloadFunc func(ctx context.Context, artifactID string) (*Artifac
 // job is the internal implementation of Job.
 // detail is the proto GetJobDetailResponse; ciContext is non-nil in CI mode.
 type job struct {
-	detail             *agentv1.GetJobDetailResponse
+	detail             *scannerv1.GetJobDetailResponse
 	params             map[string]interface{}
 	ciContext          *CIContext           // non-nil = CI mode
 	transport          *eventTransport      // populated in agent_execute.go before Scan()

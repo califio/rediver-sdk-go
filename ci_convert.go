@@ -1,21 +1,19 @@
 package rediver
 
-import (
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
-)
+import scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 
 // ciContextToProtoRequest converts a CIContext + scanner info into the
-// CreateCiJobRequest proto message (maps to JobService.CreateCiJob RPC).
-func ciContextToProtoRequest(ci *CIContext, scannerName string) *agentv1.CreateCiJobRequest {
-	refType := agentv1.GitRefType_GIT_REF_TYPE_BRANCH
+// CreateCiJobRequest proto message.
+func ciContextToProtoRequest(ci *CIContext, scannerName string) *scannerv1.CreateCiJobRequest {
+	refType := scannerv1.GitRefType_GIT_REF_TYPE_BRANCH
 	switch ci.Ref.Type {
 	case CIRefTypeTag:
-		refType = agentv1.GitRefType_GIT_REF_TYPE_TAG
+		refType = scannerv1.GitRefType_GIT_REF_TYPE_TAG
 	case CIRefTypePRMR:
-		refType = agentv1.GitRefType_GIT_REF_TYPE_PR_MR
+		refType = scannerv1.GitRefType_GIT_REF_TYPE_PR_MR
 	}
 
-	ref := &agentv1.CiJobGitRef{
+	ref := &scannerv1.CiJobGitRef{
 		Type:          refType,
 		Name:          ci.Ref.Name,
 		HeadCommitSha: ci.Ref.CommitSHA,
@@ -28,12 +26,8 @@ func ciContextToProtoRequest(ci *CIContext, scannerName string) *agentv1.CreateC
 	if ci.Ref.BaseCommitSHA != "" {
 		ref.BaseCommitSha = &ci.Ref.BaseCommitSHA
 	}
-	if ci.Ref.CommitMessage != "" {
-		// CommitMessage not in proto — no-op, info only
-		_ = ci.Ref.CommitMessage
-	}
 
-	repo := &agentv1.CiJobGitRepo{
+	repo := &scannerv1.CiJobGitRepo{
 		Id:            ci.Repo.ID,
 		Name:          ci.Repo.Name,
 		CloneUrl:      ci.Repo.URL,
@@ -42,7 +36,7 @@ func ciContextToProtoRequest(ci *CIContext, scannerName string) *agentv1.CreateC
 		Private:       ci.Repo.Private,
 	}
 
-	req := &agentv1.CreateCiJobRequest{
+	req := &scannerv1.CreateCiJobRequest{
 		Name:     scannerName,
 		Scanner:  scannerName,
 		Provider: toProtoGitProvider(ci.Provider),
@@ -57,12 +51,4 @@ func ciContextToProtoRequest(ci *CIContext, scannerName string) *agentv1.CreateC
 	}
 
 	return req
-}
-
-// strOptionalVal returns a pointer to s if non-empty, otherwise nil.
-func strOptionalVal(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

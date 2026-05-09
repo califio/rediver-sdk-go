@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 )
 
 // --- ptrOrNil ---
@@ -129,13 +129,13 @@ func TestPtrTimeOrNil_NonRFC3339(t *testing.T) {
 // --- toProtoSeverity ---
 
 func TestToProtoSeverity_Empty(t *testing.T) {
-	if toProtoSeverity("") != agentv1.Severity_SEVERITY_UNSPECIFIED {
+	if toProtoSeverity("") != scannerv1.Severity_SEVERITY_UNSPECIFIED {
 		t.Error("empty severity should return UNSPECIFIED")
 	}
 }
 
 func TestToProtoSeverity_Critical(t *testing.T) {
-	if toProtoSeverity(SeverityCritical) != agentv1.Severity_SEVERITY_CRITICAL {
+	if toProtoSeverity(SeverityCritical) != scannerv1.Severity_SEVERITY_CRITICAL {
 		t.Error("Critical severity mismatch")
 	}
 }
@@ -143,14 +143,14 @@ func TestToProtoSeverity_Critical(t *testing.T) {
 func TestToProtoSeverity_AllValues(t *testing.T) {
 	tests := []struct {
 		in   Severity
-		want agentv1.Severity
+		want scannerv1.Severity
 	}{
-		{SeverityCritical, agentv1.Severity_SEVERITY_CRITICAL},
-		{SeverityHigh, agentv1.Severity_SEVERITY_HIGH},
-		{SeverityMedium, agentv1.Severity_SEVERITY_MEDIUM},
-		{SeverityLow, agentv1.Severity_SEVERITY_LOW},
-		{SeverityInfo, agentv1.Severity_SEVERITY_INFO},
-		{SeverityNone, agentv1.Severity_SEVERITY_UNSPECIFIED},
+		{SeverityCritical, scannerv1.Severity_SEVERITY_CRITICAL},
+		{SeverityHigh, scannerv1.Severity_SEVERITY_HIGH},
+		{SeverityMedium, scannerv1.Severity_SEVERITY_MEDIUM},
+		{SeverityLow, scannerv1.Severity_SEVERITY_LOW},
+		{SeverityInfo, scannerv1.Severity_SEVERITY_INFO},
+		{SeverityNone, scannerv1.Severity_SEVERITY_UNSPECIFIED},
 	}
 	for _, tc := range tests {
 		got := toProtoSeverity(tc.in)
@@ -320,7 +320,7 @@ func TestToProtoWebFindings_AllFields(t *testing.T) {
 	if len(r.GetRequests()) != 1 {
 		t.Errorf("requests mismatch: got %d", len(r.GetRequests()))
 	}
-	if r.GetSeverity() != agentv1.Severity_SEVERITY_CRITICAL {
+	if r.GetSeverity() != scannerv1.Severity_SEVERITY_CRITICAL {
 		t.Errorf("severity mismatch: %v", r.GetSeverity())
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 )
 
 // --- NewScanner ---
@@ -227,7 +227,7 @@ func TestScanner_Scan_Retest_WithHandler(t *testing.T) {
 	)
 
 	// Create a retest job using proto detail
-	j := newJob(&agentv1.GetJobDetailResponse{Retest: true})
+	j := newJob(&scannerv1.GetJobDetailResponse{Retest: true})
 
 	err := s.Scan(context.Background(), j, func(r Result) {})
 	if err != nil {
@@ -248,7 +248,7 @@ func TestScanner_Scan_Retest_NoHandler_SilentReturn(t *testing.T) {
 		return nil
 	})
 
-	j := newJob(&agentv1.GetJobDetailResponse{Retest: true})
+	j := newJob(&scannerv1.GetJobDetailResponse{Retest: true})
 
 	err := s.Scan(context.Background(), j, func(r Result) {})
 	if err != nil {

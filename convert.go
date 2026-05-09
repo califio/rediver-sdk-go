@@ -3,7 +3,7 @@ package rediver
 import (
 	"time"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -20,15 +20,15 @@ func nilIfEmpty[T any](s []T) []T {
 }
 
 // toProtoDomains converts SDK Domain slice to proto DnsRecord slice.
-func toProtoDomains(domains []Domain) []*agentv1.DnsRecord {
-	result := make([]*agentv1.DnsRecord, len(domains))
+func toProtoDomains(domains []Domain) []*scannerv1.DnsRecord {
+	result := make([]*scannerv1.DnsRecord, len(domains))
 	for i, d := range domains {
 		// Merge A (IPv4) and AAAA (IPv6) into single ip field
 		var ips []string
 		ips = append(ips, d.A...)
 		ips = append(ips, d.AAAA...)
 
-		rec := &agentv1.DnsRecord{
+		rec := &scannerv1.DnsRecord{
 			Domain: d.Domain,
 			Ip:     nilIfEmpty(ips),
 			Mx:     nilIfEmpty(d.MX),
@@ -53,10 +53,10 @@ func toProtoDomains(domains []Domain) []*agentv1.DnsRecord {
 // scanner-emitted HTTP/TLS metadata is silently dropped before reaching the
 // backend (status_code, title, webserver, technologies, certificate fields
 // all become invisible).
-func toProtoServices(services []Service) []*agentv1.Service {
-	result := make([]*agentv1.Service, len(services))
+func toProtoServices(services []Service) []*scannerv1.Service {
+	result := make([]*scannerv1.Service, len(services))
 	for i, s := range services {
-		svc := &agentv1.Service{
+		svc := &scannerv1.Service{
 			Host: s.Host,
 			Port: int32(s.Port),
 			Cpes: nilIfEmpty(s.CPEs),
@@ -76,11 +76,11 @@ func toProtoServices(services []Service) []*agentv1.Service {
 }
 
 // toProtoHTTPInfo converts SDK HTTPInfo to proto HttpInfo.
-func toProtoHTTPInfo(h *HTTPInfo) *agentv1.HttpInfo {
+func toProtoHTTPInfo(h *HTTPInfo) *scannerv1.HttpInfo {
 	if h == nil {
 		return nil
 	}
-	out := &agentv1.HttpInfo{
+	out := &scannerv1.HttpInfo{
 		Ip:           nilIfEmpty(h.IPs),
 		Technologies: nilIfEmpty(h.Technologies),
 	}
@@ -121,11 +121,11 @@ func toProtoHTTPInfo(h *HTTPInfo) *agentv1.HttpInfo {
 // toProtoCertificate converts SDK TLSInfo to proto Certificate. NotBefore /
 // NotAfter are parsed as RFC3339 — invalid strings produce nil timestamps
 // rather than failing the whole record.
-func toProtoCertificate(c *TLSInfo) *agentv1.Certificate {
+func toProtoCertificate(c *TLSInfo) *scannerv1.Certificate {
 	if c == nil {
 		return nil
 	}
-	out := &agentv1.Certificate{
+	out := &scannerv1.Certificate{
 		SubjectAn: nilIfEmpty(c.SubjectAltNames),
 	}
 	if c.Fingerprint != "" {
@@ -170,10 +170,10 @@ func parseRFC3339(s string) *time.Time {
 }
 
 // toProtoWebFindings converts SDK WebFinding slice to proto WebFinding slice.
-func toProtoWebFindings(findings []WebFinding) []*agentv1.WebFinding {
-	result := make([]*agentv1.WebFinding, len(findings))
+func toProtoWebFindings(findings []WebFinding) []*scannerv1.WebFinding {
+	result := make([]*scannerv1.WebFinding, len(findings))
 	for i, f := range findings {
-		wf := &agentv1.WebFinding{
+		wf := &scannerv1.WebFinding{
 			Name:       f.Name,
 			Severity:   toProtoSeverity(f.Severity),
 			Endpoint:   f.Endpoint,
@@ -211,10 +211,10 @@ func toProtoWebFindings(findings []WebFinding) []*agentv1.WebFinding {
 }
 
 // toProtoSASTFindings converts SDK SASTFinding slice to proto CodeFinding slice.
-func toProtoSASTFindings(findings []SASTFinding) []*agentv1.CodeFinding {
-	result := make([]*agentv1.CodeFinding, len(findings))
+func toProtoSASTFindings(findings []SASTFinding) []*scannerv1.CodeFinding {
+	result := make([]*scannerv1.CodeFinding, len(findings))
 	for i, f := range findings {
-		cf := &agentv1.CodeFinding{
+		cf := &scannerv1.CodeFinding{
 			Name:       f.Name,
 			Severity:   toProtoSeverity(f.Severity),
 			File:       f.File,
@@ -264,13 +264,13 @@ func toProtoSASTFindings(findings []SASTFinding) []*agentv1.CodeFinding {
 }
 
 // toProtoCodeFlows converts SDK CodeFlowNode slice to proto CodeFlowNode slice.
-func toProtoCodeFlows(nodes []CodeFlowNode) []*agentv1.CodeFlowNode {
+func toProtoCodeFlows(nodes []CodeFlowNode) []*scannerv1.CodeFlowNode {
 	if len(nodes) == 0 {
 		return nil
 	}
-	result := make([]*agentv1.CodeFlowNode, len(nodes))
+	result := make([]*scannerv1.CodeFlowNode, len(nodes))
 	for i, n := range nodes {
-		node := &agentv1.CodeFlowNode{
+		node := &scannerv1.CodeFlowNode{
 			File:      n.File,
 			Snippet:   n.Snippet,
 			StartLine: int32(n.StartLine),
@@ -297,13 +297,13 @@ func toProtoCodeFlows(nodes []CodeFlowNode) []*agentv1.CodeFlowNode {
 }
 
 // toProtoCodeLines converts SDK CodeLine slice to proto CodeLine slice.
-func toProtoCodeLines(lines []CodeLine) []*agentv1.CodeLine {
+func toProtoCodeLines(lines []CodeLine) []*scannerv1.CodeLine {
 	if len(lines) == 0 {
 		return nil
 	}
-	result := make([]*agentv1.CodeLine, len(lines))
+	result := make([]*scannerv1.CodeLine, len(lines))
 	for i, l := range lines {
-		result[i] = &agentv1.CodeLine{
+		result[i] = &scannerv1.CodeLine{
 			Line:    int32(l.Line),
 			Content: l.Content,
 		}
@@ -312,13 +312,13 @@ func toProtoCodeLines(lines []CodeLine) []*agentv1.CodeLine {
 }
 
 // toProtoRawRequests converts SDK HTTPRequest slice to proto RawRequest slice.
-func toProtoRawRequests(requests []HTTPRequest) []*agentv1.RawRequest {
+func toProtoRawRequests(requests []HTTPRequest) []*scannerv1.RawRequest {
 	if len(requests) == 0 {
 		return nil
 	}
-	result := make([]*agentv1.RawRequest, len(requests))
+	result := make([]*scannerv1.RawRequest, len(requests))
 	for i, r := range requests {
-		ri := &agentv1.RawRequest{}
+		ri := &scannerv1.RawRequest{}
 		if r.RawRequest != "" {
 			ri.Request = &r.RawRequest
 		}

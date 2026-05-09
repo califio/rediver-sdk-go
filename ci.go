@@ -1,7 +1,7 @@
 package rediver
 
 import (
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	commonv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/common/v1"
 )
 
 // GitProvider represents the git hosting provider (public SDK type).
@@ -15,16 +15,16 @@ const (
 )
 
 // toProtoGitProvider converts a GitProvider string to the proto enum.
-func toProtoGitProvider(p GitProvider) agentv1.GitProvider {
+func toProtoGitProvider(p GitProvider) commonv1.GitProvider {
 	switch p {
 	case GitProviderGitHub:
-		return agentv1.GitProvider_GIT_PROVIDER_GITHUB
+		return commonv1.GitProvider_GIT_PROVIDER_GITHUB
 	case GitProviderGitLab:
-		return agentv1.GitProvider_GIT_PROVIDER_GITLAB
+		return commonv1.GitProvider_GIT_PROVIDER_GITLAB
 	case GitProviderBitbucket:
-		return agentv1.GitProvider_GIT_PROVIDER_BITBUCKET
+		return commonv1.GitProvider_GIT_PROVIDER_BITBUCKET
 	default:
-		return agentv1.GitProvider_GIT_PROVIDER_UNKNOWN
+		return commonv1.GitProvider_GIT_PROVIDER_UNKNOWN
 	}
 }
 

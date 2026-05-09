@@ -1,8 +1,6 @@
 package rediver
 
-import (
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
-)
+import scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 
 // TargetType is the scanner asset type (public SDK type — unchanged from v1).
 type TargetType string
@@ -18,23 +16,23 @@ const (
 )
 
 // toProtoAssetType converts an SDK TargetType to the proto AssetType enum.
-func toProtoAssetType(t TargetType) agentv1.AssetType {
+func toProtoAssetType(t TargetType) scannerv1.AssetType {
 	switch t {
 	case TargetTypeASN:
-		return agentv1.AssetType_ASSET_TYPE_ASN
+		return scannerv1.AssetType_ASSET_TYPE_ASN
 	case TargetTypeIP:
-		return agentv1.AssetType_ASSET_TYPE_IP
+		return scannerv1.AssetType_ASSET_TYPE_IP
 	case TargetTypeSubnet:
-		return agentv1.AssetType_ASSET_TYPE_SUBNET
+		return scannerv1.AssetType_ASSET_TYPE_SUBNET
 	case TargetTypeDomain:
-		return agentv1.AssetType_ASSET_TYPE_SUBDOMAIN
+		return scannerv1.AssetType_ASSET_TYPE_SUBDOMAIN
 	case TargetTypeRootDomain:
-		return agentv1.AssetType_ASSET_TYPE_ROOT_DOMAIN
+		return scannerv1.AssetType_ASSET_TYPE_ROOT_DOMAIN
 	case TargetTypeService:
-		return agentv1.AssetType_ASSET_TYPE_SERVICE
+		return scannerv1.AssetType_ASSET_TYPE_SERVICE
 	case TargetTypeRepository:
-		return agentv1.AssetType_ASSET_TYPE_REPOSITORY
+		return scannerv1.AssetType_ASSET_TYPE_REPOSITORY
 	default:
-		return agentv1.AssetType_ASSET_TYPE_UNSPECIFIED
+		return scannerv1.AssetType_ASSET_TYPE_UNSPECIFIED
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	commonv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/common/v1"
 	"github.com/califio/rediver-sdk-go/utils"
 )
 
@@ -15,23 +15,30 @@ func (j *job) Repository() (*Repository, bool) {
 		return nil, false
 	}
 	r := j.detail.Target.Repository
+	target := r.GetTarget()
+	if target == nil {
+		return nil, false
+	}
 	repo := &Repository{
-		URL:           r.GetUrl(),
-		Event:         ciEventToString(r.GetEvent()),
-		Ref:           r.GetRef(),
-		Branch:        r.GetBranch(),
-		CommitSHA:     r.GetCommitSha(),
-		BaseBranch:    r.GetBaseBranch(),
-		BaseCommitSHA: r.GetBaseCommitSha(),
-		PrNumber:      int(r.GetPrNumber()),
+		URL:           target.GetUrl(),
+		Event:         ciEventToString(target.GetEvent()),
+		Branch:        target.GetBranch(),
+		CommitSHA:     target.GetCommitSha(),
+		BaseBranch:    target.GetBaseBranch(),
+		BaseCommitSHA: target.GetBaseCommitSha(),
+		PrNumber:      int(target.GetPullRequestNumber()),
 		ArtifactID:    r.GetArtifactId(),
 		DiffOnly:      r.GetDiffOnly(),
 	}
-	repo.Provider = gitProviderToString(r.GetProvider())
-
+	repo.Provider = gitProviderToString(target.GetProvider())
 	if cred := r.GetCredential(); cred != nil {
 		repo.Username = cred.GetUsername()
 		repo.Password = cred.GetPassword()
+	}
+	if tag := target.GetTag(); tag != "" {
+		repo.Ref = "refs/tags/" + tag
+	} else if branch := target.GetBranch(); branch != "" {
+		repo.Ref = "refs/heads/" + branch
 	}
 
 	// Populate CommitSHA from resolved HEAD when server didn't provide it.
@@ -46,13 +53,13 @@ func (j *job) Repository() (*Repository, bool) {
 }
 
 // ciEventToString converts a proto CiEvent enum to the string used by scanner logic.
-func ciEventToString(e agentv1.CiEvent) string {
+func ciEventToString(e commonv1.CiEvent) string {
 	switch e {
-	case agentv1.CiEvent_CI_EVENT_PUSH:
+	case commonv1.CiEvent_CI_EVENT_PUSH:
 		return "push"
-	case agentv1.CiEvent_CI_EVENT_PULL_REQUEST:
+	case commonv1.CiEvent_CI_EVENT_PULL_REQUEST:
 		return "pull_request"
-	case agentv1.CiEvent_CI_EVENT_TAG:
+	case commonv1.CiEvent_CI_EVENT_TAG:
 		return "tag"
 	default:
 		return ""
@@ -60,13 +67,13 @@ func ciEventToString(e agentv1.CiEvent) string {
 }
 
 // gitProviderToString converts a proto GitProvider enum to a lowercase provider string.
-func gitProviderToString(p agentv1.GitProvider) string {
+func gitProviderToString(p commonv1.GitProvider) string {
 	switch p {
-	case agentv1.GitProvider_GIT_PROVIDER_GITLAB:
+	case commonv1.GitProvider_GIT_PROVIDER_GITLAB:
 		return "gitlab"
-	case agentv1.GitProvider_GIT_PROVIDER_GITHUB:
+	case commonv1.GitProvider_GIT_PROVIDER_GITHUB:
 		return "github"
-	case agentv1.GitProvider_GIT_PROVIDER_BITBUCKET:
+	case commonv1.GitProvider_GIT_PROVIDER_BITBUCKET:
 		return "bitbucket"
 	default:
 		return ""

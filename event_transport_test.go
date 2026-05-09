@@ -9,33 +9,33 @@ import (
 	"testing"
 	"time"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 )
 
 type fakeSender struct {
 	mu     sync.Mutex
-	calls  [][]*agentv1.JobEvent
+	calls  [][]*scannerv1.JobEvent
 	failN  int32
 	failed atomic.Int32
 }
 
-func (f *fakeSender) SendJobEvents(_ context.Context, _ string, events []*agentv1.JobEvent) error {
+func (f *fakeSender) SendJobEvents(_ context.Context, _ string, events []*scannerv1.JobEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failed.Load() < f.failN {
 		f.failed.Add(1)
 		return io.ErrUnexpectedEOF
 	}
-	cp := make([]*agentv1.JobEvent, len(events))
+	cp := make([]*scannerv1.JobEvent, len(events))
 	copy(cp, events)
 	f.calls = append(f.calls, cp)
 	return nil
 }
 
-func (f *fakeSender) Calls() [][]*agentv1.JobEvent {
+func (f *fakeSender) Calls() [][]*scannerv1.JobEvent {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([][]*agentv1.JobEvent, len(f.calls))
+	out := make([][]*scannerv1.JobEvent, len(f.calls))
 	copy(out, f.calls)
 	return out
 }

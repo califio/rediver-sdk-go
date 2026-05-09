@@ -1,7 +1,7 @@
 package rediver
 
 import (
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 )
 
 // Severity is the finding severity level (public SDK type — unchanged from v1).
@@ -17,20 +17,20 @@ const (
 )
 
 // toProtoSeverity converts SDK Severity to the proto enum.
-func toProtoSeverity(s Severity) agentv1.Severity {
+func toProtoSeverity(s Severity) scannerv1.Severity {
 	switch s {
 	case SeverityCritical:
-		return agentv1.Severity_SEVERITY_CRITICAL
+		return scannerv1.Severity_SEVERITY_CRITICAL
 	case SeverityHigh:
-		return agentv1.Severity_SEVERITY_HIGH
+		return scannerv1.Severity_SEVERITY_HIGH
 	case SeverityMedium:
-		return agentv1.Severity_SEVERITY_MEDIUM
+		return scannerv1.Severity_SEVERITY_MEDIUM
 	case SeverityLow:
-		return agentv1.Severity_SEVERITY_LOW
+		return scannerv1.Severity_SEVERITY_LOW
 	case SeverityInfo:
-		return agentv1.Severity_SEVERITY_INFO
+		return scannerv1.Severity_SEVERITY_INFO
 	default:
-		return agentv1.Severity_SEVERITY_UNSPECIFIED
+		return scannerv1.Severity_SEVERITY_UNSPECIFIED
 	}
 }
 
