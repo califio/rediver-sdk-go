@@ -35,7 +35,8 @@ func (a *Agent) jobHeartbeatLoop(ctx context.Context, jobID string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := a.client.JobHeartbeat(ctx, jobID); err != nil {
+			// ctx carries the job token (WithJobToken) so JobHeartbeat routes via Bearer.
+			if err := a.client.JobHeartbeat(ctx); err != nil {
 				a.logger.Warn("job heartbeat failed", "job_id", jobID, "error", err)
 			}
 		}

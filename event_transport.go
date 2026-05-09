@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -24,7 +24,7 @@ const (
 
 // eventSender abstracts the network call for testability.
 type eventSender interface {
-	SendJobEvents(ctx context.Context, jobID string, events []*agentv1.JobEvent) error
+	SendJobEvents(ctx context.Context, jobID string, events []*scannerv1.JobEvent) error
 }
 
 // eventTransport owns the per-job event pipeline: channel + flush worker.
@@ -146,14 +146,14 @@ func (t *eventTransport) send(ctx context.Context, events []Event) {
 	}
 }
 
-func toProtoEvents(events []Event) ([]*agentv1.JobEvent, error) {
-	out := make([]*agentv1.JobEvent, 0, len(events))
+func toProtoEvents(events []Event) ([]*scannerv1.JobEvent, error) {
+	out := make([]*scannerv1.JobEvent, 0, len(events))
 	for _, ev := range events {
 		ps, err := payloadToStruct(ev.Payload)
 		if err != nil {
 			return nil, fmt.Errorf("seq=%d: %w", ev.Sequence, err)
 		}
-		out = append(out, &agentv1.JobEvent{
+		out = append(out, &scannerv1.JobEvent{
 			Sequence:  ev.Sequence,
 			Timestamp: timestamppb.New(ev.Timestamp),
 			Type:      string(ev.Type),
@@ -192,10 +192,9 @@ type agentEventSender struct {
 	client *transport.Client
 }
 
-func (s *agentEventSender) SendJobEvents(ctx context.Context, jobID string, events []*agentv1.JobEvent) error {
-	return s.client.AppendJobEvents(ctx, &agentv1.AppendJobEventsRequest{
-		JobId:  jobID,
+func (s *agentEventSender) SendJobEvents(ctx context.Context, _ string, events []*scannerv1.JobEvent) error {
+	// ctx carries job token (WithJobToken); job_id is resolved from JWT claim server-side.
+	return s.client.AppendJobEvents(ctx, &scannerv1.AppendJobEventsRequest{
 		Events: events,
 	})
 }
-

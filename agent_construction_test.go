@@ -31,8 +31,8 @@ func TestNewAgent_TokenFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if a.clusterToken != "from-env" {
-		t.Errorf("got token %q, want from-env", a.clusterToken)
+	if a.agentToken != "from-env" {
+		t.Errorf("got token %q, want from-env", a.agentToken)
 	}
 }
 

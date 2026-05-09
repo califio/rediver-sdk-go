@@ -212,8 +212,8 @@ func WithServerURL(url string) Option {
 	}
 }
 
-// resolveClusterToken resolves the cluster token from the argument or REDIVER_TOKEN env.
-func resolveClusterToken(explicit string) string {
+// resolveAgentToken resolves the agent token from the argument or REDIVER_TOKEN env.
+func resolveAgentToken(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}

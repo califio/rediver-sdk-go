@@ -38,7 +38,7 @@ func newTestConnectServer(t *testing.T, svc *testScannerService) string {
 	return srv.URL
 }
 
-func TestNewAgent_TaskDirectJobRegistersScanner(t *testing.T) {
+func TestInitSession_RegistersMachine(t *testing.T) {
 	t.Parallel()
 
 	svc := &testScannerService{runnerID: "runner-1"}
@@ -50,21 +50,28 @@ func TestNewAgent_TaskDirectJobRegistersScanner(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	// initSession with directJobID — Task mode: ephemeral=false, no sync, bound to job.
-	if err := a.initSession(context.Background(), false, false, "job-123"); err != nil {
+	if err := a.initSession(context.Background(), false, false); err != nil {
 		t.Fatalf("initSession() error = %v", err)
 	}
 
 	req := svc.lastReq
 	if req == nil {
 		t.Fatal("RegisterMachine was never called")
+	}
+	// runner_id is nil on first registration (no prior machine ID).
+	if req.RunnerId != nil {
+		t.Fatalf("runner_id = %v, want nil on first registration", *req.RunnerId)
+	}
+	// runnerID should be propagated back to agent after registration.
+	if a.runnerID != "runner-1" {
+		t.Fatalf("a.runnerID = %q, want runner-1", a.runnerID)
 	}
 }
 
-func TestNewAgent_TaskPollRegistersWithoutRunnerID(t *testing.T) {
+func TestInitSession_SetsTokenManagerRunnerID(t *testing.T) {
 	t.Parallel()
 
-	svc := &testScannerService{runnerID: "runner-1"}
+	svc := &testScannerService{runnerID: "runner-42"}
 	serverURL := newTestConnectServer(t, svc)
 
 	scanner := NewScanner("calif-audit", []TargetType{TargetTypeRepository}, nil)
@@ -73,16 +80,11 @@ func TestNewAgent_TaskPollRegistersWithoutRunnerID(t *testing.T) {
 		t.Fatalf("NewAgent() error = %v", err)
 	}
 
-	// initSession without directJobID — normal Task mode poll: ephemeral, no job binding.
-	if err := a.initSession(context.Background(), false, false, ""); err != nil {
+	if err := a.initSession(context.Background(), true, false); err != nil {
 		t.Fatalf("initSession() error = %v", err)
 	}
 
-	req := svc.lastReq
-	if req == nil {
-		t.Fatal("RegisterMachine was never called")
-	}
-	if req.RunnerId != nil {
-		t.Fatalf("runner_id = %v, want nil", *req.RunnerId)
+	if got := a.tokenManager.RunnerID(); got != "runner-42" {
+		t.Fatalf("tokenManager.RunnerID() = %q, want runner-42", got)
 	}
 }

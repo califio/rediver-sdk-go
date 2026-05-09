@@ -52,7 +52,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if !a.running.CompareAndSwap(false, true) {
 		return ErrAlreadyRunning
 	}
-	if err := a.initSession(ctx, true, true, ""); err != nil {
+	if err := a.initSession(ctx, true, true); err != nil {
 		return err
 	}
 	return a.run(ctx)

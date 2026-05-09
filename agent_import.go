@@ -3,7 +3,7 @@ package rediver
 import (
 	"context"
 
-	agentv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/agent/v1"
+	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 )
 
 const agentMaxBatchSize = 500
@@ -36,8 +36,8 @@ func (a *Agent) importDomains(ctx context.Context, jobID string, domains []Domai
 		end := min(i+agentMaxBatchSize, len(apiDomains))
 		chunk := apiDomains[i:end]
 		err := a.retrier.Do(ctx, func() error {
-			return a.client.PushAssets(ctx, &agentv1.PushAssetsRequest{
-				JobId:   jobID,
+			// ctx carries job token (WithJobToken); job_id resolved from JWT claim server-side.
+			return a.client.PushAssets(ctx, &scannerv1.PushAssetsRequest{
 				Domains: chunk,
 			})
 		})
@@ -53,8 +53,8 @@ func (a *Agent) importServices(ctx context.Context, jobID string, services []Ser
 		end := min(i+agentMaxBatchSize, len(apiServices))
 		chunk := apiServices[i:end]
 		err := a.retrier.Do(ctx, func() error {
-			return a.client.PushAssets(ctx, &agentv1.PushAssetsRequest{
-				JobId:    jobID,
+			// ctx carries job token; job_id resolved from JWT claim server-side.
+			return a.client.PushAssets(ctx, &scannerv1.PushAssetsRequest{
 				Services: chunk,
 			})
 		})
@@ -66,8 +66,8 @@ func (a *Agent) importServices(ctx context.Context, jobID string, services []Ser
 
 func (a *Agent) importWebFindings(ctx context.Context, jobID string, findings []WebFinding) {
 	err := a.retrier.Do(ctx, func() error {
-		return a.client.PushFindings(ctx, &agentv1.PushFindingsRequest{
-			JobId:       jobID,
+		// ctx carries job token; job_id resolved from JWT claim server-side.
+		return a.client.PushFindings(ctx, &scannerv1.PushFindingsRequest{
 			WebFindings: toProtoWebFindings(findings),
 		})
 	})
@@ -78,8 +78,8 @@ func (a *Agent) importWebFindings(ctx context.Context, jobID string, findings []
 
 func (a *Agent) importSASTFindings(ctx context.Context, jobID string, findings []SASTFinding) {
 	err := a.retrier.Do(ctx, func() error {
-		return a.client.PushFindings(ctx, &agentv1.PushFindingsRequest{
-			JobId:        jobID,
+		// ctx carries job token; job_id resolved from JWT claim server-side.
+		return a.client.PushFindings(ctx, &scannerv1.PushFindingsRequest{
 			CodeFindings: toProtoSASTFindings(findings),
 		})
 	})

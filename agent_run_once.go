@@ -17,18 +17,14 @@ func (a *Agent) runOnce(ctx context.Context, directJobID string) error {
 		jobID, _, err = a.pullJob(ctx)
 		if errors.Is(err, ErrNoJobAvailable) {
 			a.logger.Info("no job available, exiting")
-			_ = a.tokenManager.RevokeToken(ctx)
 			return nil
 		}
 		if err != nil {
-			_ = a.tokenManager.RevokeToken(ctx)
 			return err
 		}
 	}
 
-	execErr := a.executeJob(ctx, jobID)
-	_ = a.tokenManager.RevokeToken(ctx)
-	return execErr
+	return a.executeJob(ctx, jobID)
 }
 
 // RunOnce runs Task mode: ephemeral token, polls one job (or executes the
@@ -44,7 +40,7 @@ func (a *Agent) RunOnce(ctx context.Context, jobID ...string) error {
 	if len(jobID) > 0 {
 		directJobID = jobID[0]
 	}
-	if err := a.initSession(ctx, false, false, directJobID); err != nil {
+	if err := a.initSession(ctx, false, false); err != nil {
 		return err
 	}
 	return a.runOnce(ctx, directJobID)

@@ -67,7 +67,7 @@ func (a *Agent) Dispatch(ctx context.Context, handler JobHandler) error {
 	if !a.running.CompareAndSwap(false, true) {
 		return ErrAlreadyRunning
 	}
-	if err := a.initSession(ctx, true, a.config.syncMetadataDispatcher, ""); err != nil {
+	if err := a.initSession(ctx, true, a.config.syncMetadataDispatcher); err != nil {
 		return err
 	}
 	return a.runDispatcher(ctx, handler)

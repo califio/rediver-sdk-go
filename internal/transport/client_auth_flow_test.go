@@ -2,8 +2,10 @@ package transport
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -13,8 +15,10 @@ import (
 	"github.com/califio/rediver-sdk-go/internal/auth"
 )
 
-// authFlowScannerService implements ScannerService for the auth-flow test,
-// handling RegisterMachine, CreateJobToken, PollJob, and JobStart.
+// authFlowScannerService implements ScannerService/JobService for auth-flow tests.
+// Validates that:
+//   - Agent-plane RPCs (RegisterMachine, CreateJobToken, PollJob) carry X-Token.
+//   - Job-plane RPCs (JobStart) carry Authorization: Bearer and no X-Token.
 type authFlowScannerService struct {
 	scannerv1connect.UnimplementedScannerServiceHandler
 	scannerv1connect.UnimplementedJobServiceHandler
@@ -95,14 +99,14 @@ func TestClient_UsesAgentTokenForAgentPlaneAndBearerForJobPlane(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	tm := auth.NewTokenManager("agent-token")
-	tm.SetToken("agent-token")
-	tm.SetAgentID("runner-1")
+	tm.SetRunnerID("runner-1")
 
 	client, err := NewClient(server.URL, tm, server.Client())
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
 
+	// Agent-plane: RegisterMachine uses X-Token.
 	runnerID, err := client.RegisterAgent(context.Background(), &scannerv1.RegisterMachineRequest{})
 	if err != nil {
 		t.Fatalf("RegisterAgent() error = %v", err)
@@ -111,6 +115,7 @@ func TestClient_UsesAgentTokenForAgentPlaneAndBearerForJobPlane(t *testing.T) {
 		t.Fatalf("runnerID = %q, want runner-1", runnerID)
 	}
 
+	// Agent-plane: PollJob uses X-Token.
 	jobID, scanner, err := client.DoPollJob(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("DoPollJob() error = %v", err)
@@ -119,7 +124,15 @@ func TestClient_UsesAgentTokenForAgentPlaneAndBearerForJobPlane(t *testing.T) {
 		t.Fatalf("poll = (%q, %q), want (job-1, scanner-1)", jobID, scanner)
 	}
 
-	if err := client.JobStart(context.Background(), "job-1"); err != nil {
+	// Agent-plane: CreateJobToken uses X-Token, forwards runnerID.
+	jobToken, err := client.CreateJobToken(context.Background(), "job-1", "runner-1")
+	if err != nil {
+		t.Fatalf("CreateJobToken() error = %v", err)
+	}
+
+	// Job-plane: JobStart uses Bearer from context-keyed job token.
+	jobCtx := WithJobToken(context.Background(), jobToken)
+	if err := client.JobStart(jobCtx); err != nil {
 		t.Fatalf("JobStart() error = %v", err)
 	}
 
@@ -135,4 +148,79 @@ func TestClient_UsesAgentTokenForAgentPlaneAndBearerForJobPlane(t *testing.T) {
 	if svc.createJobCalls != 1 {
 		t.Fatalf("CreateJobToken calls = %d, want 1", svc.createJobCalls)
 	}
+}
+
+// TestConcurrentJobs_DistinctTokensNoLeakage verifies the per-context job-token
+// contract: N goroutines each tag ctx with their own token via WithJobToken and
+// make a fake RPC. Every request must carry exactly that goroutine's token in
+// Authorization — no cross-goroutine token leakage is possible because
+// context.WithValue is immutable.
+func TestConcurrentJobs_DistinctTokensNoLeakage(t *testing.T) {
+	t.Parallel()
+
+	const goroutines = 50
+
+	// capturedTokens[i] will be set by goroutine i when its request fires.
+	capturedTokens := make([]string, goroutines)
+	var mu sync.Mutex
+
+	// Fake RoundTripper that records the Authorization header from each request.
+	fake := &fakeRoundTripper{
+		handler: func(req *http.Request) (*http.Response, error) {
+			auth := req.Header.Get("Authorization")
+			// Extract token index from the Authorization header value
+			// (format: "Bearer token-<i>").
+			mu.Lock()
+			for i := range capturedTokens {
+				if auth == fmt.Sprintf("Bearer token-%d", i) {
+					capturedTokens[i] = auth
+					break
+				}
+			}
+			mu.Unlock()
+			return &http.Response{
+				StatusCode: 200,
+				Body:       http.NoBody,
+				Header:     http.Header{},
+			}, nil
+		},
+	}
+
+	tm := auth.NewTokenManager("agent-token")
+	tr := &authTransport{base: fake, tm: tm}
+
+	var wg sync.WaitGroup
+	for i := range goroutines {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			jobToken := fmt.Sprintf("token-%d", idx)
+			ctx := WithJobToken(context.Background(), jobToken)
+			req, _ := http.NewRequestWithContext(ctx, "POST", "http://localhost/job/start", nil)
+			resp, err := tr.RoundTrip(req)
+			if err != nil {
+				t.Errorf("goroutine %d: unexpected error: %v", idx, err)
+				return
+			}
+			resp.Body.Close()
+		}(i)
+	}
+	wg.Wait()
+
+	// Every slot must have been set to exactly the right token.
+	for i := range goroutines {
+		want := fmt.Sprintf("Bearer token-%d", i)
+		if capturedTokens[i] != want {
+			t.Errorf("goroutine %d: Authorization = %q, want %q", i, capturedTokens[i], want)
+		}
+	}
+}
+
+// fakeRoundTripper invokes a handler function for every request.
+type fakeRoundTripper struct {
+	handler func(*http.Request) (*http.Response, error)
+}
+
+func (f *fakeRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f.handler(req)
 }

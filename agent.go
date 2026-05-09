@@ -15,13 +15,12 @@ import (
 
 // Agent is the per-scanner agent. Create with NewAgent; start with Run, RunOnce, RunCI, or Dispatch.
 type Agent struct {
-	scanner      Scanner
-	scannerName  string       // scanner name in DB (normalized)
-	clusterToken string       // set in NewAgent, used by lifecycle methods to gen token
-	serverURL    string       // set in NewAgent
-	agentID      string       // set after token gen
-	config       *agentConfig // shared config (read-only after creation)
-	token        atomic.Value // stores string — current agent token
+	scanner     Scanner
+	scannerName string       // scanner name in DB (normalized)
+	agentToken  string       // opaque rat- token, set in NewAgent, shared by all runners of this agent
+	serverURL   string       // set in NewAgent
+	runnerID    string       // set after RegisterMachine; identifies this runner machine
+	config      *agentConfig // shared config (read-only after creation)
 
 	tokenManager *auth.TokenManager // per-agent token lifecycle
 	client       *transport.Client  // per-agent Connect client
@@ -32,14 +31,12 @@ type Agent struct {
 	// testPollDoer overrides client for pollLoop in unit tests; nil in production.
 	testPollDoer pollDoer
 
-	genReq auth.GenerateTokenRequest // cached for 401 refresh
-
 	// drainCtx survives graceful shutdown so in-flight jobs can finish
 	drainCtx    context.Context
 	cancelDrain context.CancelFunc
 
-	mu      sync.Mutex  // guards cancelDrain + token refresh
-	running atomic.Bool // one-shot guard (used in Phase 3)
+	mu      sync.Mutex  // guards cancelDrain
+	running atomic.Bool // one-shot guard
 }
 
 // NewAgent creates an Agent for a single scanner. Token is resolved from the
@@ -59,7 +56,7 @@ func NewAgent(token string, scanner Scanner, opts ...Option) (*Agent, error) {
 		opt(cfg)
 	}
 
-	tok := resolveClusterToken(token)
+	tok := resolveAgentToken(token)
 	if tok == "" {
 		return nil, fmt.Errorf("%w: agent token is required (set REDIVER_TOKEN or pass as argument)", ErrInvalidConfig)
 	}
@@ -67,13 +64,13 @@ func NewAgent(token string, scanner Scanner, opts ...Option) (*Agent, error) {
 	url := resolveServerURL(cfg.serverURL)
 
 	a := &Agent{
-		scanner:      scanner,
-		scannerName:  strings.ToLower(scanner.Name()),
-		config:       cfg,
-		clusterToken: tok,
-		serverURL:    url,
-		logger:       cfg.logger.With("scanner", strings.ToLower(scanner.Name())),
-		retrier:      newRetrier(cfg.retryPolicy),
+		scanner:     scanner,
+		scannerName: strings.ToLower(scanner.Name()),
+		config:      cfg,
+		agentToken:  tok,
+		serverURL:   url,
+		logger:      cfg.logger.With("scanner", strings.ToLower(scanner.Name())),
+		retrier:     newRetrier(cfg.retryPolicy),
 	}
 	return a, nil
 }

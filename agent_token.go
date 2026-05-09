@@ -14,33 +14,18 @@ import (
 // initSession registers this Agent with the scanner runtime and wires up the
 // transport client + worker pool. Called by each lifecycle method at start.
 //
-// persistent: true for Worker/Dispatcher (saved to Agents table, supports heartbeat),
+// persistent: true for Worker/Dispatcher (saved as AgentMachine row, supports
 //
-//	false for Task/CI (ephemeral, revoked on exit).
+//	heartbeat); false for Task/CI (ephemeral, no heartbeat needed).
 //
-// directJobID: when set (Task only), backend issues a token bound to that job.
 // syncMetadata: push scanner config to backend (Worker always, Dispatcher opt-in).
-func (a *Agent) initSession(ctx context.Context, persistent, syncMetadata bool, directJobID string) error {
+func (a *Agent) initSession(ctx context.Context, persistent, syncMetadata bool) error {
 	hostname := a.config.hostname
 	if hostname == "" {
 		hostname = utils.GetIPAddress()
 	}
 
-	genReq := auth.GenerateTokenRequest{
-		ClusterToken: a.clusterToken,
-		Scanner:      a.scannerName,
-		Persistent:   persistent,
-		Hostname:     hostname,
-		IPAddress:    utils.GetIPAddress(),
-		Version:      a.config.version,
-	}
-	if directJobID != "" {
-		genReq.JobId = &directJobID
-	}
-
-	tm := auth.NewTokenManager(a.clusterToken)
-	tm.SetToken(a.clusterToken)
-	tm.SetGenReq(genReq)
+	tm := auth.NewTokenManager(a.agentToken)
 
 	client, err := transport.NewClient(a.serverURL, tm, a.config.httpClient)
 	if err != nil {
@@ -60,21 +45,14 @@ func (a *Agent) initSession(ctx context.Context, persistent, syncMetadata bool, 
 		runnerID, registerErr = client.RegisterAgent(ctx, registerReq)
 		return registerErr
 	}); err != nil {
-		return fmt.Errorf("register agent: %w", err)
+		return fmt.Errorf("register machine: %w", err)
 	}
 
-	agentID := runnerID
-	genReq.AgentId = &agentID
-	tm.SetGenReq(genReq)
-	tok := a.clusterToken
-	tm.SetAgentID(agentID)
-
-	a.agentID = agentID
+	tm.SetRunnerID(runnerID)
+	a.runnerID = runnerID
 	a.tokenManager = tm
 	a.client = client
-	a.genReq = genReq
-	a.token.Store(tok)
-	a.logger = a.config.logger.With("scanner", a.scannerName, "agent_id", agentID)
+	a.logger = a.config.logger.With("scanner", a.scannerName, "runner_id", runnerID)
 	a.pool = worker.NewPool(a.config.maxConcurrency, a.config.maxConcurrency*2)
 
 	if syncMetadata {
@@ -83,7 +61,7 @@ func (a *Agent) initSession(ctx context.Context, persistent, syncMetadata bool, 
 
 	a.config.logger.Info("agent initialized",
 		"scanner", a.scannerName,
-		"agent_id", agentID,
+		"runner_id", runnerID,
 		"persistent", persistent,
 	)
 	return nil

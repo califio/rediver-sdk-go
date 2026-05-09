@@ -7,13 +7,14 @@ import (
 	"sync"
 
 	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/califio/rediver-sdk-go/internal/transport"
 )
 
 // runCI runs CI mode: detect git context, create job, execute, revoke token, return.
 func (a *Agent) runCI(ctx context.Context) error {
 	ci := a.detectGitContext()
 	if ci == nil {
-		_ = a.tokenManager.RevokeToken(ctx)
 		return fmt.Errorf("%w: not running in a recognized CI environment or git repository", ErrInvalidConfig)
 	}
 
@@ -31,13 +32,10 @@ func (a *Agent) runCI(ctx context.Context) error {
 		}
 	}
 	if !supportsRepo {
-		_ = a.tokenManager.RevokeToken(ctx)
 		return fmt.Errorf("%w: scanner %q does not support TargetTypeRepository", ErrInvalidConfig, a.scannerName)
 	}
 
-	err := a.executeCIJob(ctx, ci)
-	_ = a.tokenManager.RevokeToken(ctx)
-	return err
+	return a.executeCIJob(ctx, ci)
 }
 
 func (a *Agent) detectGitContext() *CIContext {
@@ -88,16 +86,21 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 
 	a.logger.Info("CI job created", "job_id", jobID)
 
-	j := newCIJob(jobID, ci, a.scannerName, params)
-	jobToken, err := a.client.CreateJobToken(ctx, jobID)
+	// Mint per-job JWT (agent-plane, X-Token). All subsequent job-scope calls
+	// use jobCtx which carries this token via Authorization: Bearer.
+	jobToken, err := a.client.CreateJobToken(ctx, jobID, a.tokenManager.RunnerID())
 	if err != nil {
 		return fmt.Errorf("create job token: %w", err)
 	}
+	jobCtx := transport.WithJobToken(ctx, jobToken)
+
+	j := newCIJob(jobID, ci, a.scannerName, params)
 	j.(*job).executionToken = jobToken
 
 	ciJobLogger := a.config.logger.With("job_id", jobID, "scanner", a.scannerName)
 
-	ciEventCtx, cancelCIEvents := context.WithCancel(ctx)
+	// Event transport runs with jobCtx so AppendJobEvents uses Bearer.
+	ciEventCtx, cancelCIEvents := context.WithCancel(jobCtx)
 	ciSender := &agentEventSender{client: a.client}
 	ciTr := newEventTransport(jobID, ciSender, ciJobLogger, 0, 0, 0)
 	j.(*job).transport = ciTr
@@ -110,21 +113,22 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 	}()
 
 	ciJobLogger.Info("job started", "ci_provider", string(ci.Provider))
-	a.reportJobStarted(ctx, jobID)
+	a.reportJobStarted(jobCtx, jobID)
 
-	if err := j.(*job).prepareRepository(ctx); err != nil {
-		a.reportJobFailed(ctx, jobID, fmt.Sprintf("prepare repo: %v", err))
+	if err := j.(*job).prepareRepository(jobCtx); err != nil {
+		a.reportJobFailed(jobCtx, jobID, fmt.Sprintf("prepare repo: %v", err))
 		cancelCIEvents()
 		ciEventWg.Wait()
 		return err
 	}
 	defer j.(*job).cleanupRepository()
 
-	hbCtx, cancelHB := context.WithCancel(ctx)
+	// Heartbeat goroutine inherits jobCtx so it routes via Bearer.
+	hbCtx, cancelHB := context.WithCancel(jobCtx)
 	go a.jobHeartbeatLoop(hbCtx, jobID)
 
-	scanErr := a.scanner.Scan(ctx, j, func(res Result) {
-		a.importResult(ctx, jobID, res, "")
+	scanErr := a.scanner.Scan(jobCtx, j, func(res Result) {
+		a.importResult(jobCtx, jobID, res, "")
 	})
 
 	if scanErr != nil {
@@ -138,10 +142,10 @@ func (a *Agent) executeCIJob(ctx context.Context, ci *CIContext) error {
 	cancelHB()
 
 	if scanErr != nil {
-		a.reportJobFailed(ctx, jobID, scanErr.Error())
+		a.reportJobFailed(jobCtx, jobID, scanErr.Error())
 		return scanErr
 	}
-	a.reportJobCompleted(ctx, jobID)
+	a.reportJobCompleted(jobCtx, jobID)
 	return nil
 }
 
@@ -154,7 +158,7 @@ func (a *Agent) RunCI(ctx context.Context) error {
 	if !a.running.CompareAndSwap(false, true) {
 		return ErrAlreadyRunning
 	}
-	if err := a.initSession(ctx, false, false, ""); err != nil {
+	if err := a.initSession(ctx, false, false); err != nil {
 		return err
 	}
 	return a.runCI(ctx)
