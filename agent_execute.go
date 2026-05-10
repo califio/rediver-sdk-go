@@ -18,7 +18,9 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 	// an agent-scope RPC, so the plain ctx (no job token) is correct here.
 	jobToken, err := a.client.CreateJobToken(ctx, jobID, a.tokenManager.RunnerID())
 	if err != nil {
-		a.reportJobFailed(ctx, jobID, fmt.Sprintf("create job token: %v", err))
+		// Cannot call JobFailed without a job token (RequireJob server-side).
+		// Backend reclaims the job via heartbeat timeout.
+		a.logger.Error("create job token failed", "job_id", jobID, "error", err)
 		return err
 	}
 

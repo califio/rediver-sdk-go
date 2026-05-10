@@ -52,8 +52,9 @@ func (a *Agent) pollLoop(ctx context.Context) {
 		if jobID != "" {
 			err = a.pool.Submit(&agentPoolJob{a: a, ctx: a.drainCtx, jobID: jobID})
 			if err != nil {
+				// No job token has been minted yet, so JobFailed (RequireJob) is unreachable.
+				// Backend reclaims the job via heartbeat timeout.
 				a.logger.Error("submit job to pool failed", "job_id", jobID, "error", err)
-				a.reportJobFailed(ctx, jobID, "worker pool full")
 			}
 			continue
 		}
