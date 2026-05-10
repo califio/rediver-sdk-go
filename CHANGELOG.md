@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-10
+
+### Added
+
+- Per-context job-token routing. Each running job derives its own context via `transport.WithJobToken`, so concurrent jobs in sibling goroutines authenticate with distinct JWTs and cannot interfere. Agent-plane RPCs continue to use `X-Token` automatically.
+- Connector auth flow. Agents register through the dedicated auth service and exchange the connector token for runner credentials.
+
+### Changed
+
+- Internal proto imports migrated from `agent.v1` / `auth.v1` to `scanner.v1` per-domain RPCs (`ScannerService`, `ScannerJobService`, etc.). Internal gen stubs removed in favor of Buf-distributed clients.
+- Agent registration routes through the auth service rather than the agent service.
+
+### Fixed
+
+- Trailing job events were dropped on shutdown. `eventTransport` drained buffered events with `context.Background()` after the parent context was cancelled, losing the `WithJobToken` value and tripping `permission_denied: job token required` on `AppendJobEvents`. Drain now uses `context.WithoutCancel(ctx)` so it inherits the job token while detaching cancellation.
+- Two pre-token failure paths (`CreateJobToken` failure, `pool.Submit` failure) called `JobFailed` with a context that has no job token, producing `permission_denied` warnings. Both now log the error locally; the backend reclaims the orphaned job via heartbeat timeout.
+
 ## [1.3.1] - 2026-05-05
 
 ### Fixed
