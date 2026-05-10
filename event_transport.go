@@ -109,7 +109,11 @@ func (t *eventTransport) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			finalCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			// Preserve ctx Values (notably WithJobToken — required for AppendJobEvents
+			// Bearer auth) but detach cancellation so the drain can outlive the
+			// cancelled parent. context.Background() would drop the job token and
+			// trigger permission_denied on the final flush.
+			finalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 			defer cancel()
 			// Drain any remaining buffered events
 			for {
