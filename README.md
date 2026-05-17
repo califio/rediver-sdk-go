@@ -1,6 +1,6 @@
 # Rediver SDK
 
-Go SDK for building security scanners that integrate with the [Rediver](https://rediver.io) Attack Surface Management platform.
+Go SDK for building security scanners that integrate with the Rediver Attack Surface Management platform.
 
 ## Installation
 
