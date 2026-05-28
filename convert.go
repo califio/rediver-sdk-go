@@ -19,6 +19,21 @@ func nilIfEmpty[T any](s []T) []T {
 	return s
 }
 
+func toProtoLogLevel(l LogLevel) scannerv1.LogLevel {
+	switch l {
+	case LogLevelDebug:
+		return scannerv1.LogLevel_LOG_LEVEL_DEBUG
+	case LogLevelInfo:
+		return scannerv1.LogLevel_LOG_LEVEL_INFO
+	case LogLevelWarn:
+		return scannerv1.LogLevel_LOG_LEVEL_WARN
+	case LogLevelError:
+		return scannerv1.LogLevel_LOG_LEVEL_ERROR
+	default:
+		return scannerv1.LogLevel_LOG_LEVEL_UNSPECIFIED
+	}
+}
+
 // toProtoDomains converts SDK Domain slice to proto DnsRecord slice.
 func toProtoDomains(domains []Domain) []*scannerv1.DnsRecord {
 	result := make([]*scannerv1.DnsRecord, len(domains))

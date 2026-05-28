@@ -277,14 +277,16 @@ func (c *Client) PushFindings(ctx context.Context, req *scannerv1.PushFindingsRe
 	return nil
 }
 
-// CreateCiJob calls scanner.v1.JobService.CreateCiJob and returns the response
-// (agent-plane call, uses X-Token).
-func (c *Client) CreateCiJob(ctx context.Context, req *scannerv1.CreateCiJobRequest) (*scannerv1.CreateCiJobResponse, error) {
-	resp, err := c.ScannerJob.CreateCiJob(ctx, connect.NewRequest(req))
+// Log calls JobService.Log. ctx must carry a job token (WithJobToken).
+func (c *Client) Log(ctx context.Context, level scannerv1.LogLevel, message string) error {
+	_, err := c.ScannerJob.Log(ctx, connect.NewRequest(&scannerv1.LogRequest{
+		Level:   level,
+		Message: message,
+	}))
 	if err != nil {
-		return nil, fmt.Errorf("create CI job: %w", err)
+		return fmt.Errorf("log: %w", err)
 	}
-	return resp.Msg, nil
+	return nil
 }
 
 func transcodeProto(src proto.Message, dst proto.Message) error {
@@ -293,20 +295,6 @@ func transcodeProto(src proto.Message, dst proto.Message) error {
 		return err
 	}
 	return proto.Unmarshal(b, dst)
-}
-
-// AppendJobEvents sends a batch of JobEvents to the backend.
-// ctx must carry a job token (WithJobToken).
-func (c *Client) AppendJobEvents(ctx context.Context, req *scannerv1.AppendJobEventsRequest) error {
-	scannerReq := &scannerv1.AppendJobEventsRequest{}
-	if err := transcodeProto(req, scannerReq); err != nil {
-		return fmt.Errorf("append job events: %w", err)
-	}
-	_, err := c.ScannerJob.AppendJobEvents(ctx, connect.NewRequest(scannerReq))
-	if err != nil {
-		return fmt.Errorf("append job events: %w", err)
-	}
-	return nil
 }
 
 // BaseURL returns the base URL of the API server.

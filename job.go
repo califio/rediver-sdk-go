@@ -2,20 +2,27 @@ package rediver
 
 import (
 	"context"
-	"io"
 	"log/slog"
 
 	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 	"github.com/califio/rediver-sdk-go/utils"
 )
 
+// LogLevel represents log severity.
+type LogLevel string
+
+const (
+	LogLevelDebug LogLevel = "debug"
+	LogLevelInfo  LogLevel = "info"
+	LogLevelWarn  LogLevel = "warn"
+	LogLevelError LogLevel = "error"
+)
+
 // JobType indicates whether this is a discovery or retest job.
 type JobType int
 
 const (
-	// JobTypeDiscovery is for discovering new assets from targets.
 	JobTypeDiscovery JobType = iota
-	// JobTypeRetest is for validating existing assets.
 	JobTypeRetest
 )
 
@@ -32,59 +39,24 @@ func (t JobType) String() string {
 
 // Job provides access to scan job details.
 type Job interface {
-	// ID returns the unique job identifier.
 	ID() string
-
-	// ExecutionToken returns the current execution token snapshot for this job.
 	ExecutionToken() string
-
-	// Type returns whether this is a discovery or retest job.
 	Type() JobType
-
-	// Domains returns domain targets from the job.
 	Domains() []DomainTarget
-
-	// IPs returns IP targets from the job.
 	IPs() []IPTarget
-
-	// Subnets returns subnet targets from the job.
 	Subnets() []SubnetTarget
-
-	// Services returns service targets from the job.
 	Services() []ServiceTarget
-
-	// Param returns a typed parameter accessor.
 	Param(name string) ParamValue
-
-	// Repository returns git repository info (for CI/SAST jobs).
 	Repository() (*Repository, bool)
-
-	// RepoDir returns the path to the repository working directory.
 	RepoDir() string
-
-	// ChangedFiles returns files changed between base and head commits.
 	ChangedFiles(ctx context.Context) (*utils.ChangedFiles, error)
-
-	// Integration returns third-party integration tokens for this job.
 	Integration() *Integration
-
-	// Scanner returns the scanner name this job is assigned to.
 	Scanner() string
-
-	// TimeoutMinutes returns the job timeout in minutes.
 	TimeoutMinutes() int
-
-	// Version returns the schema version of the job detail.
 	Version() int
 
-	// Emit ships a typed event through the SDK's event transport. The event's
-	// Sequence and Timestamp are assigned automatically.
-	Emit(event Event)
-
-	// SlogHandler returns a slog.Handler adapter that emits each log record
-	// as a Log event through Emit. Use only for third-party libs that take
-	// *slog.Logger; for direct scanner code, prefer Emit + NewLog.
-	SlogHandler() slog.Handler
+	// Logger returns a *slog.Logger that writes to both terminal and backend.
+	Logger() *slog.Logger
 }
 
 // ArtifactDownload describes a downloadable source artifact and optional
@@ -99,13 +71,15 @@ type ArtifactDownload struct {
 // decryption metadata for the given artifactID.
 type artifactDownloadFunc func(ctx context.Context, artifactID string) (*ArtifactDownload, error)
 
+// logFunc sends a log message to the backend via Log RPC. Injected by Agent.
+type logFunc func(level LogLevel, message string)
+
 // job is the internal implementation of Job.
-// detail is the proto GetJobDetailResponse; ciContext is non-nil in CI mode.
 type job struct {
 	detail             *scannerv1.GetJobDetailResponse
 	params             map[string]interface{}
-	ciContext          *CIContext           // non-nil = CI mode
-	transport          *eventTransport      // populated in agent_execute.go before Scan()
+	logFn              logFunc              // injected by agent_execute.go — calls Log RPC
+	logLevel           slog.Level           // minimum log level for both sinks
 	executionToken     string               // snapshot for scanner subprocesses
 	repoDir            string               // prepared repo path
 	clonedRepoDir      string               // non-empty when SDK cloned it
@@ -160,23 +134,13 @@ func (j *job) Version() int {
 	if j.detail != nil {
 		v := j.detail.GetVersion()
 		if v == 0 {
-			return 1 // default version
+			return 1
 		}
 		return int(v)
 	}
 	return 1
 }
 
-func (j *job) Emit(ev Event) {
-	if j.transport == nil {
-		return // pre-init guard; should never happen at scan time
-	}
-	j.transport.Submit(ev)
-}
-
-func (j *job) SlogHandler() slog.Handler {
-	if j.transport == nil {
-		return slog.NewTextHandler(io.Discard, nil)
-	}
-	return newJobSlogAdapter(j.transport.Submit, slog.LevelDebug)
+func (j *job) Logger() *slog.Logger {
+	return slog.New(newJobLogHandler(j.logFn, j.logLevel))
 }

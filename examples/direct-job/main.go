@@ -7,7 +7,6 @@ package main
 import (
 	"context"
 	"log"
-	"log/slog"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -36,7 +35,7 @@ func main() {
 }
 
 func nucleiHandler(ctx context.Context, job rediver.Job, emit func(rediver.Result)) error {
-	logger := slog.New(job.SlogHandler())
+	logger := job.Logger()
 	logger.Info("scanning domains", "count", len(job.Domains()), "job_id", job.ID())
 	// ... nuclei scan logic ...
 	return nil

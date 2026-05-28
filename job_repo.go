@@ -20,13 +20,8 @@ import (
 )
 
 // prepareRepository sets up the repo directory for scanning.
-// In CI mode it reuses the existing directory; otherwise it clones or extracts an artifact.
+// Clones from remote or extracts an artifact archive.
 func (j *job) prepareRepository(ctx context.Context) error {
-	if j.ciContext != nil {
-		j.repoDir = j.ciContext.RepoDir
-		return nil
-	}
-
 	repo, ok := j.Repository()
 	if !ok {
 		return fmt.Errorf("no repository target")
@@ -76,12 +71,11 @@ func (j *job) cleanupRepository() {
 	if j.clonedRepoDir == "" {
 		return
 	}
+	log := j.Logger()
 	if err := os.RemoveAll(j.clonedRepoDir); err != nil {
-		j.Emit(NewLog(LogLevelWarn,
-			fmt.Sprintf("cleanup repo failed dir=%s error=%v", j.clonedRepoDir, err)))
+		log.Warn("cleanup repo failed", "dir", j.clonedRepoDir, "error", err)
 	} else {
-		j.Emit(NewLog(LogLevelInfo,
-			fmt.Sprintf("cleaned up cloned repo dir=%s", j.clonedRepoDir)))
+		log.Info("cleaned up cloned repo", "dir", j.clonedRepoDir)
 	}
 	j.clonedRepoDir = ""
 	j.repoDir = ""

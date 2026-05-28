@@ -1,9 +1,11 @@
-buf.build/gen/go/rediver/api/connectrpc/go v1.19.2-20260509005136-d4d26e67a530.1 h1:TmXkveuoE9gecv7+RrBwoxqs7WuUE/zhgaAnwmgC9N4=
-buf.build/gen/go/rediver/api/connectrpc/go v1.19.2-20260509005136-d4d26e67a530.1/go.mod h1:HXePwKUQjRbO18zPpWWuKt93l5WSpFQHoTCIL5O+CY0=
-buf.build/gen/go/rediver/api/protocolbuffers/go v1.36.11-20260509005136-d4d26e67a530.1 h1:0HyRaVQPBD+eVL9IpynrjyUT5/gkAGWQczJR4pscRVI=
-buf.build/gen/go/rediver/api/protocolbuffers/go v1.36.11-20260509005136-d4d26e67a530.1/go.mod h1:OO5shgW8NunsGQ3ONewyB4dBd4C/8YPciYukTcEwkF4=
-connectrpc.com/connect v1.19.2 h1:McQ83FGdzL+t60peksi0gXC7MQ/iLKgLduAnThbM0mo=
-connectrpc.com/connect v1.19.2/go.mod h1:tN20fjdGlewnSFeZxLKb0xwIZ6ozc3OQs2hTXy4du9w=
+buf.build/gen/go/rediver/api/connectrpc/go v1.20.0-20260526164020-e1a212cacdf6.1 h1:/N0qMx8UzHgo2/o6jfq+WKi8i+tlxWy2FJLaO0mVp0U=
+buf.build/gen/go/rediver/api/connectrpc/go v1.20.0-20260526164020-e1a212cacdf6.1/go.mod h1:VKrX8gEFArvYoRwUPdvvP9r0DzE2ALYCPU0vjCUzP1M=
+buf.build/gen/go/rediver/api/connectrpc/go v1.20.0-20260528023505-49a656ae15ba.1 h1:oVI9oFz0LQLa66sFf4R6JbZ47C4pl15iMJxogbAhaIs=
+buf.build/gen/go/rediver/api/connectrpc/go v1.20.0-20260528023505-49a656ae15ba.1/go.mod h1:2ZiVT1ekJX0QDtNPvC/nEl1NragOx10GZYW4hzGbYGk=
+buf.build/gen/go/rediver/api/protocolbuffers/go v1.36.11-20260528023505-49a656ae15ba.1 h1:Lu1I8sx8kp1ZYMZzINK6vL4hycGN6cfhizNaGF14F8M=
+buf.build/gen/go/rediver/api/protocolbuffers/go v1.36.11-20260528023505-49a656ae15ba.1/go.mod h1:OO5shgW8NunsGQ3ONewyB4dBd4C/8YPciYukTcEwkF4=
+connectrpc.com/connect v1.20.0 h1:6TNDAB+WeNd2uolWNlYczB5E0KNNaVMNUEx8JEUsPmQ=
+connectrpc.com/connect v1.20.0/go.mod h1:A2ygJrukXwWy32vkCAAHNVguZrqZ+jeZ9rGRnGR4dN4=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
 github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=

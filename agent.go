@@ -13,7 +13,7 @@ import (
 	"github.com/califio/rediver-sdk-go/internal/worker"
 )
 
-// Agent is the per-scanner agent. Create with NewAgent; start with Run, RunOnce, RunCI, or Dispatch.
+// Agent is the per-scanner agent. Create with NewAgent; start with Run, RunOnce, or Dispatch.
 type Agent struct {
 	scanner     Scanner
 	scannerName string       // scanner name in DB (normalized)
@@ -44,7 +44,7 @@ type Agent struct {
 // DefaultServerURL but can be overridden via WithServerURL or REDIVER_URL.
 //
 // NewAgent validates configuration and builds non-network state. Token
-// generation happens inside the chosen lifecycle method (Run, RunOnce, RunCI,
+// generation happens inside the chosen lifecycle method (Run, RunOnce,
 // Dispatch) with the appropriate persistence flag.
 func NewAgent(token string, scanner Scanner, opts ...Option) (*Agent, error) {
 	if scanner == nil {

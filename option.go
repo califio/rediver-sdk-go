@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// DefaultLogLevel is the default minimum log level for job loggers.
+const DefaultLogLevel = slog.LevelInfo
+
 // DispatchMode controls how PollJob requests are issued.
 type DispatchMode string
 
@@ -42,8 +45,8 @@ type agentConfig struct {
 	version                string
 	hostname               string
 	shutdownTimeout        time.Duration
-	repoDir                string // override repository directory for CI mode
-	syncMetadataDispatcher bool   // allow Dispatcher mode to sync scanner metadata on startup
+	logLevel               slog.Level // minimum log level for job loggers
+	syncMetadataDispatcher bool       // allow Dispatcher mode to sync scanner metadata on startup
 	serverURL              string // override server URL; empty → resolveServerURL() picks env or default
 }
 
@@ -76,6 +79,7 @@ func defaultAgentConfig() *agentConfig {
 		longPollWait:    defaultLongPollWait,
 		shutdownTimeout: 0, // wait forever
 		hostname:        hostname,
+		logLevel:        DefaultLogLevel,
 	}
 }
 
@@ -192,10 +196,12 @@ func WithRetryAggressive() Option {
 	return WithRetry(AggressiveRetryPolicy())
 }
 
-// WithRepoDir overrides the repository directory for CI mode scanning.
-func WithRepoDir(path string) Option {
+// WithLogLevel sets the minimum log level for job loggers.
+// Affects both terminal output and backend Log RPC.
+// Default: slog.LevelInfo.
+func WithLogLevel(level slog.Level) Option {
 	return func(c *agentConfig) {
-		c.repoDir = path
+		c.logLevel = level
 	}
 }
 

@@ -29,10 +29,6 @@ func TestAgent_DoubleRunReturnsError(t *testing.T) {
 	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Errorf("RunOnce: got %v, want ErrAlreadyRunning", err)
 	}
-	err = a.RunCI(ctx)
-	if !errors.Is(err, ErrAlreadyRunning) {
-		t.Errorf("RunCI: got %v, want ErrAlreadyRunning", err)
-	}
 	err = a.Dispatch(ctx, func(_ context.Context, _ PulledJob) error { return nil })
 	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Errorf("Dispatch: got %v, want ErrAlreadyRunning", err)

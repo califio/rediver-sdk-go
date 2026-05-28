@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	scannerv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/scanner/v1"
 	"github.com/califio/rediver-sdk-go/internal/transport"
@@ -57,18 +56,12 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 	}
 	jobLogger := a.config.logger.With("job_id", jobID, "scanner", scannerName)
 
-	// Start event transport with jobCtx so AppendJobEvents routes via Bearer.
-	eventCtx, cancelEvents := context.WithCancel(jobCtx)
-	sender := &agentEventSender{client: a.client}
-	tr := newEventTransport(jobID, sender, jobLogger, 0, 0, 0)
-	j.(*job).transport = tr
-
-	var eventWg sync.WaitGroup
-	eventWg.Add(1)
-	go func() {
-		defer eventWg.Done()
-		tr.Run(eventCtx)
-	}()
+	j.(*job).logFn = func(level LogLevel, message string) {
+		if err := a.client.Log(jobCtx, toProtoLogLevel(level), message); err != nil {
+			jobLogger.Warn("log RPC failed", "error", err)
+		}
+	}
+	j.(*job).logLevel = a.config.logLevel
 
 	jobLogger.Info("job started", "scanner", scannerName)
 	a.reportJobStarted(jobCtx, jobID)
@@ -87,8 +80,6 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 		jobLogger.Info("preparing repository", attrs...)
 		if err := j.(*job).prepareRepository(jobCtx); err != nil {
 			a.reportJobFailed(jobCtx, jobID, fmt.Sprintf("prepare repo: %v", err))
-			cancelEvents()
-			eventWg.Wait()
 			return err
 		}
 		defer j.(*job).cleanupRepository()
@@ -112,8 +103,6 @@ func (a *Agent) executeJob(ctx context.Context, jobID string) error {
 		jobLogger.Info("job completed")
 	}
 
-	cancelEvents()
-	eventWg.Wait()
 	cancelHB()
 
 	if scanErr != nil {

@@ -1,7 +1,6 @@
 package rediver
 
 import (
-	"log/slog"
 	"testing"
 
 	commonv1 "buf.build/gen/go/rediver/api/protocolbuffers/go/common/v1"
@@ -433,18 +432,6 @@ func TestJob_Version_Zero(t *testing.T) {
 	if j.Version() != 1 {
 		t.Errorf("zero version should default to 1, got %d", j.Version())
 	}
-}
-
-// --- job.SlogHandler ---
-
-func TestJob_SlogHandler_Nil(t *testing.T) {
-	j := newJob(nil)
-	h := j.SlogHandler()
-	if h == nil {
-		t.Fatal("SlogHandler() should never return nil")
-	}
-	// must not panic when emitting through a job with no transport
-	slog.New(h).Info("test message")
 }
 
 // --- job.Integration ---
