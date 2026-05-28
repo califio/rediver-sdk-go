@@ -8,6 +8,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-05-28
+
+### Breaking
+
+- Removed `RunCI` mode and all CI-related types (`CIContext`, `CIRef`, `CIRepo`, `DetectGitContext`, `WithRepoDir`)
+- Removed Event system (`Emit`, `Event`, `EventType`, `SlogHandler`, `NewLog`, `NewTextDelta`, `NewToolUseStart`, etc.)
+- Removed `Log(level, message)` from `Job` interface
+
+### Added
+
+- `Job.Logger() *slog.Logger` — returns a structured logger with dual-sink handler: terminal (stderr) + backend (`Log` RPC, fire-and-forget)
+- `WithLogLevel(slog.Level)` agent option — configurable minimum log level for both sinks (default: `slog.LevelInfo`)
+- `rpc Log(LogRequest) returns (LogResponse)` transport support via `JobService.Log`
+
+### Changed
+
+- Updated `buf.build/gen/go/rediver/api` to latest proto (added `Log` RPC, removed `AppendJobEvents` and `CreateCiJob`)
+- Updated `connectrpc.com/connect` from v1.19.2 to v1.20.0
+- Examples migrated from `job.Log()`/`job.SlogHandler()` to `job.Logger()`
+
+### Removed
+
+- `AppendJobEvents` RPC and event batching transport
+- `CreateCiJob` RPC and CI job creation flow
+- `examples/ci-scanner/` example
+- Files: `event.go`, `event_log.go`, `event_ai_text.go`, `event_tool.go`, `event_console.go`, `event_transport.go`, `slog_adapter.go`, `ci.go`, `ci_env.go`, `ci_convert.go`, `local_git.go`, `agent_run_ci.go`
+
+### Migration
+
+```go
+// Before
+log := slog.New(job.SlogHandler())
+log.Info("scanning", "target", target)
+
+// After
+log := job.Logger()
+log.Info("scanning", "target", target)
+```
+
 ## [1.4.0] - 2026-05-10
 
 ### Added
