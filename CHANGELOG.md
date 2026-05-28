@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-05-28
+
+### Changed
+
+- Dispatcher poll loop now supports long-polling via `WithDispatchMode(DispatchLongPolling)` (previously hardcoded short-poll)
+- Dispatcher handler called synchronously — callers control concurrency by wrapping in goroutines if needed
+
+### Tests
+
+- Added dispatch integration tests with httptest Connect server: handler ordering, error resilience, long-poll `WaitSeconds` verification
+
 ## [1.4.1] - 2026-05-28
 
 ### Breaking
