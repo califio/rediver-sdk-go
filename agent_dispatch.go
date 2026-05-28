@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 )
 
-// runDispatcher runs Dispatcher mode: heartbeat + poll loops, calling handler instead of executing.
+// runDispatcher runs Dispatcher mode: heartbeat + poll loop, calling handler
+// synchronously for each polled job. Supports both short-poll and long-poll
+// via dispatchParams(). The handler decides whether to run work in a goroutine.
 func (a *Agent) runDispatcher(ctx context.Context, handler JobHandler) error {
 	a.drainCtx, a.cancelDrain = context.WithCancel(context.Background())
 	defer a.cancelDrain()
@@ -17,47 +18,49 @@ func (a *Agent) runDispatcher(ctx context.Context, handler JobHandler) error {
 
 	go a.heartbeatLoop(a.drainCtx)
 
-	ticker := time.NewTicker(a.config.pollInterval)
-	defer ticker.Stop()
+	waitSeconds, clientSleep := a.config.dispatchParams()
+	backoff := time.Second
 
-	var wg sync.WaitGroup
 	for {
-		select {
-		case <-ctx.Done():
-			a.logger.Info("dispatcher shutting down, waiting for handlers")
-			wg.Wait()
+		if ctx.Err() != nil {
+			a.logger.Info("dispatcher shutting down")
 			a.cancelDrain()
 			return nil
-		case <-ticker.C:
-			jobID, scanner, err := a.pullJob(ctx)
-			if err != nil {
-				if !errors.Is(err, ErrNoJobAvailable) {
-					a.logger.Error("pull job failed", "error", err)
-					if errors.Is(err, ErrClusterRevoked) {
-						return err
-					}
-				}
-				continue
-			}
-			if jobID == "" {
-				continue
-			}
+		}
 
-			pulled := PulledJob{JobID: jobID, Scanner: scanner}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				if herr := handler(ctx, pulled); herr != nil {
-					a.logger.Error("dispatch handler failed", "job_id", jobID, "error", herr)
+		jobID, scanner, err := a.client.DoPollJob(ctx, waitSeconds)
+		if err != nil {
+			if errors.Is(err, ErrClusterRevoked) {
+				return err
+			}
+			a.logger.Warn("poll error", "error", err)
+			sleep := backoff
+			backoff = minDuration(backoff*2, 30*time.Second)
+			if !sleepOrCancel(ctx, sleep) {
+				return nil
+			}
+			continue
+		}
+		backoff = time.Second
+
+		if jobID == "" {
+			if clientSleep > 0 {
+				if !sleepOrCancel(ctx, clientSleep) {
+					return nil
 				}
-			}()
+			}
+			continue
+		}
+
+		if herr := handler(ctx, PulledJob{JobID: jobID, Scanner: scanner}); herr != nil {
+			a.logger.Error("dispatch handler failed", "job_id", jobID, "error", herr)
 		}
 	}
 }
 
 // Dispatch runs Dispatcher mode: persistent token, poll loop hands jobs to
-// handler instead of executing them locally. The handler is responsible for
-// forwarding the job to an external worker.
+// handler instead of executing them locally. The handler is called synchronously
+// — use a goroutine inside the handler if concurrent dispatch is needed.
 //
 // Returns ErrAlreadyRunning if this Agent has already started.
 func (a *Agent) Dispatch(ctx context.Context, handler JobHandler) error {

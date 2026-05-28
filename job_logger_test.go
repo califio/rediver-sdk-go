@@ -17,6 +17,16 @@ type rpcLogCall struct {
 	Message string
 }
 
+func assertHasCall(t *testing.T, calls []rpcLogCall, level LogLevel, message string) {
+	t.Helper()
+	for _, c := range calls {
+		if c.Level == level && c.Message == message {
+			return
+		}
+	}
+	t.Errorf("missing call level=%q message=%q in %v", level, message, calls)
+}
+
 func (f *fakeLogRPC) record(level LogLevel, message string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -57,19 +67,8 @@ func TestLogger_SendsToBackendViaSink(t *testing.T) {
 		t.Fatalf("got %d RPC calls, want 2", len(calls))
 	}
 
-	if calls[0].Level != LogLevelInfo {
-		t.Errorf("call[0].Level = %q, want %q", calls[0].Level, LogLevelInfo)
-	}
-	if calls[0].Message != "starting scan target=example.com" {
-		t.Errorf("call[0].Message = %q", calls[0].Message)
-	}
-
-	if calls[1].Level != LogLevelError {
-		t.Errorf("call[1].Level = %q, want %q", calls[1].Level, LogLevelError)
-	}
-	if calls[1].Message != "scan failed reason=timeout" {
-		t.Errorf("call[1].Message = %q", calls[1].Message)
-	}
+	assertHasCall(t, calls, LogLevelInfo, "starting scan target=example.com")
+	assertHasCall(t, calls, LogLevelError, "scan failed reason=timeout")
 }
 
 func TestLogger_RespectsLogLevel(t *testing.T) {
@@ -89,12 +88,8 @@ func TestLogger_RespectsLogLevel(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("got %d RPC calls, want 2 (warn+error only)", len(calls))
 	}
-	if calls[0].Level != LogLevelWarn {
-		t.Errorf("call[0].Level = %q, want warn", calls[0].Level)
-	}
-	if calls[1].Level != LogLevelError {
-		t.Errorf("call[1].Level = %q, want error", calls[1].Level)
-	}
+	assertHasCall(t, calls, LogLevelWarn, "warn msg")
+	assertHasCall(t, calls, LogLevelError, "error msg")
 }
 
 func TestLogger_NilLogFn_NoBackendCalls(t *testing.T) {
